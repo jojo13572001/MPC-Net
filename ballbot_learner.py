@@ -219,7 +219,7 @@ writer = SummaryWriter()
 
 load_policy = False
 if load_policy:
-    save_path = "/path/to/saved/policy.pt"
+    save_path = "data/policy.pt"
     policy = torch.load(save_path)
     policy.eval()
 else:
@@ -236,7 +236,7 @@ optimizer = torch.optim.Adam(policy.parameters(), lr=learning_rate)
 
 load_memory = False
 if load_memory:
-    with open("/path/to/memory.pkl", 'rb') as memFile:
+    with open("data/memory.pkl", 'rb') as memFile:
         mem = pickle.load(memFile)
 else:
     mem_capacity = 1000000
@@ -362,7 +362,7 @@ try:
         if time.time() - last_policy_save_time > 5.0 * 60.0:
             last_policy_save_time = time.time()
             now = datetime.datetime.now()
-            save_path = "/tmp/mpcPolicy_" + now.strftime("%Y-%m-%d_%H%M%S")
+            save_path = "tmp/mpcPolicy_" + now.strftime("%Y-%m-%d_%H%M%S")
             print("Iteration", it, "saving policy to", save_path + ".pt")
             torch.save(policy, save_path + ".pt")
 
@@ -384,7 +384,7 @@ print("optimized policy parameters:")
 print(list(policy.named_parameters()))
 
 now = datetime.datetime.now()
-save_path = "/tmp/mpcPolicy_" + now.strftime("%Y-%m-%d_%H%M%S")
+save_path = "tmp/mpcPolicy_" + now.strftime("%Y-%m-%d_%H%M%S")
 print("saving policy to", save_path + ".pt")
 torch.save(policy, save_path + ".pt")
 
