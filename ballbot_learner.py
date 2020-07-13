@@ -9,9 +9,9 @@ import os
 
 # ugly workaround until shared library can be discovered properly with python3
 import sys
-sys.path.append(os.environ["HOME"]+"/catkin_ws/devel/lib/python3.6/dist-packages/ocs2_ballbot_example")
+sys.path.append(os.environ["HOME"]+"/Documents/catkin_ws/devel/lib/python3.6/dist-packages/ocs2_double_integrator_example")
 
-from BallbotPyBindings import mpc_interface, scalar_array, state_vector_array, input_vector_array, dynamic_vector_array, cost_desired_trajectories
+from DoubleIntegratorPyBindings import mpc_interface, scalar_array, state_vector_array, input_vector_array, dynamic_vector_array, cost_desired_trajectories
 
 from PolicyNet import ExpertMixturePolicy as PolicyNet
 
