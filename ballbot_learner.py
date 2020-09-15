@@ -9,9 +9,9 @@ import os
 
 # ugly workaround until shared library can be discovered properly with python3
 import sys
-sys.path.append(os.environ["HOME"]+"/Documents/catkin_ws/devel/lib/python3.6/dist-packages/ocs2_double_integrator_example")
+sys.path.append(os.environ["HOME"]+"/catkin_ws/devel/lib/python3.6/dist-packages/ocs2_ballbot_example")
 
-from DoubleIntegratorPyBindings import mpc_interface, scalar_array, state_vector_array, input_vector_array, dynamic_vector_array, cost_desired_trajectories
+from BallbotPyBindings import mpc_interface, scalar_array, state_vector_array, input_vector_array, dynamic_vector_array, cost_desired_trajectories
 
 from PolicyNet import ExpertMixturePolicy as PolicyNet
 
@@ -280,9 +280,10 @@ try:
                 x_result = state_vector_array()
                 u_result = input_vector_array()
                 mpc.getMpcSolution(t_result, x_result, u_result)
-                K = mpc.getLinearFeedbackGain(t_result[0])
+                #K = mpc.getLinearFeedbackGain(t_result[0])
                 # sample around the initial point and push it to the replay buffer
-                for i in range(int(round(num_samples_per_trajectory_point(t_result[0], max_num_points=4, half_value_decay_t=1e10)))):
+                for i in range(1):
+                #for i in range(int(round(num_samples_per_trajectory_point(t_result[0], max_num_points=4, half_value_decay_t=1e10)))):
                     if i == 0:
                         x = x_result[0] # definitely push back the nominal point
                     else:
@@ -293,7 +294,7 @@ try:
                         nu = mpc.getStateInputConstraintLagrangian(t_result[0], x)
                     else:
                         nu = None
-                    mem.push(mpc_time, x, dVdx, None, nu, None, u_result[0] + K.dot(x - x_result[0]))
+                    mem.push(mpc_time, x, dVdx, None, nu, None, u_result[0])
 
                 # increment state for next time step
                 ttx_torch = torch.tensor(np.concatenate((t_result[0], x_result[0]), axis=None),
