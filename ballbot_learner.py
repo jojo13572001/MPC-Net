@@ -167,14 +167,14 @@ class StateInputConstraint(torch.autograd.Function):
         return grad_t, grad_x, grad_u
 
 
-def loss_function(tx, u_pred, dVdx, nu):
+def control_Hamiltonian(tx, u_pred, dVdx, nu):
     f = FlowMap.apply(tx[0], tx[1:], u_pred)
     L = IntermediateCost.apply(tx[0], tx[1:], u_pred)
-    loss = L + dVdx.dot(f)
+    hamiltonian = L + dVdx.dot(f)
     if systemHasConstraints:
         g1 = StateInputConstraint.apply(tx[0], tx[1:], u_pred)
-        loss += g1.dot(nu)
-    return loss
+        hamiltonian += g1.dot(nu)
+    return hamiltonian
 
 
 def num_samples_per_trajectory_point(t, max_num_points, half_value_decay_t):
@@ -331,8 +331,8 @@ try:
                 else:
                     nu = None
                 for pi, u_pred_i in zip(p, u_pred): # loop through experts
-                    loss += pi * loss_function(tx, u_pred_i, dVdx, nu)
-                mpc_H += loss_function(tx, torch.tensor(sample.u0), dVdx, nu)
+                    loss += pi * control_Hamiltonian(tx, u_pred_i, dVdx, nu)
+                mpc_H += control_Hamiltonian(tx, torch.tensor(sample.u0), dVdx, nu)
 
                 if len(p) > 1:
                     u_net = torch.matmul(p, u_pred)
