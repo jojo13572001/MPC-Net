@@ -176,6 +176,9 @@ def control_Hamiltonian(tx, u_pred, dVdx, nu):
         hamiltonian += g1.dot(nu)
     return hamiltonian
 
+def MSE_Loss(u0, u_pred):
+    return np.sqrt(np.sum(np.power((u0-u_pred),2)))
+
 
 def num_samples_per_trajectory_point(t, max_num_points, half_value_decay_t):
     """
@@ -319,9 +322,10 @@ try:
 
         def solver_step_closure():
             loss = torch.zeros([1], dtype=dtype, device=device)  # running sum over samples
-            mpc_H = torch.zeros([1], dtype=dtype, device=device)  # running sum over samples
+            #mpc_H = torch.zeros([1], dtype=dtype, device=device)  # running sum over samples
             g1_norm = 0.0  # running sum over samples
             for sample in samples:
+                sum_u = 0.0
                 tx = torch.tensor(np.concatenate((sample.t, sample.x), axis=None), dtype=dtype, device=device, requires_grad=False)
                 ttx_net = torch.tensor(np.concatenate((sample.t, sample.x), axis=None), dtype=dtype, device=device, requires_grad=False)
                 p, u_pred = policy(ttx_net)
@@ -331,8 +335,9 @@ try:
                 else:
                     nu = None
                 for pi, u_pred_i in zip(p, u_pred): # loop through experts
-                    loss += pi * control_Hamiltonian(tx, u_pred_i, dVdx, nu)
-                mpc_H += control_Hamiltonian(tx, torch.tensor(sample.u0), dVdx, nu)
+                    sum_u += pi * u_pred_i
+                loss +=  MSE_Loss(sample.u0, sum_u)
+                #mpc_H += control_Hamiltonian(tx, torch.tensor(sample.u0), dVdx, nu)
 
                 if len(p) > 1:
                     u_net = torch.matmul(p, u_pred)
