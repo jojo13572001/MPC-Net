@@ -16,17 +16,61 @@ INPUT_DIM = 6
 mpc = jmpc.Jmpc(port=5678)
 systemHasConstraints = False
 
-mpc.resetTrajectory()
-
 
 dtype = torch.float
 device = torch.device("cpu")
 #device = torch.device("cuda:0") # Uncomment this to run on GPU
 
+def mseVerification(policy):
+    mpc.resetTrajectory()
+    getTrajectoryResponse = mpc.getTrajectory()
+    trajectoryLen = len(getTrajectoryResponse.get("result").get("times"))
 
-def mseLoss_function(u0, u_pred):
-    mseloss = torch.nn.MSELoss(reduction='mean')
-    return mseloss(u0, u_pred)
+    # prepare saving of MPC solution trajectory (always add first point of a slq run)
+    trajectoryMaxTime = getTrajectoryResponse.get("result").get("times")[trajectoryLen-1] # length of trajectories to generate with MPC
+    dt = round(getTrajectoryResponse.get("result").get("times")[1] - getTrajectoryResponse.get("result").get("times")[0], 2) # 0.03s control duration
+    #trajectoryTime = np.linspace(0.0, trajectoryMaxTime, trajectoryLen)
+    trajectoryTime = np.arange(0.0, trajectoryMaxTime, dt)
+    last_policy_save_time = time.time()
+
+    initState = getTrajectoryResponse.get("result").get("trajectory")[0]
+    initState.extend(np.zeros(int(STATE_DIM/2)))
+
+    x0 = initState
+    #x0[0] = np.random.uniform(-0.5, 0.5) # base x
+    #x0[1] = np.random.uniform(-0.5, 0.5) # base y
+    MSELoss = 0.0
+    for mpc_time in trajectoryTime: # mpc dummy loop
+
+        ttx_net = torch.tensor(np.concatenate((mpc_time, x0), axis=None), dtype=dtype, device=device, requires_grad=False)
+        p, u_pred = policy(ttx_net)
+        
+        if len(p) > 1:
+            u_net = torch.matmul(p, u_pred)
+        else:
+            u_net = u_pred[0]
+
+        u_np = u_net.detach().numpy().astype('float64')
+
+        #print("start policyReqResp, ", np.transpose(tx[1:])[0].tolist(), " ", tx[0][0])
+        computePolicyResponse = mpc.computePolicy(x0, mpc_time)
+        if computePolicyResponse.get("result") == False :
+           print("Compute Policy Error!")
+           sys.exit(0)
+        
+        jsonControl = mpc.getControl(dt, x0, mpc_time)
+        MSELoss += np.square(np.subtract(u_np.tolist(), jsonControl.get("result"))).sum() 
+        #print("index ", index,"time ",mpc_time, " ,control net ", u_np.tolist(), "control mpc ", jsonControl.get("result"))
+        jsonNextState = mpc.getNextState(jsonControl.get("result"), dt, x0) #for mpc get next state
+        #jsonNextState = mpc.getNextState(u_np.tolist(), dt, x0) #for mpc-net get next state
+        
+        x0 = jsonNextState.get("result")
+
+    return MSELoss
+
+def mseLoss_function(u_pred, u0):
+    mseloss = torch.nn.MSELoss(reduction='sum')
+    return mseloss(u_pred, u0)
 
 def loss_function(tx, u_pred, dVdx, nu):
     f = FlowMap.apply(tx[0], tx[1:], u_pred)
@@ -42,7 +86,7 @@ writer = SummaryWriter()
 
 load_policy = False
 if load_policy:
-    save_path = "tmp2/mpcPolicy_2020-07-18_122836.pt"
+    save_path = "armPolicy/mpcPolicy_2020-10-06_033958.pt"
     policy = torch.load(save_path)
     policy.eval()
 else:
@@ -62,10 +106,10 @@ if load_memory:
     with open("armPolicy/memory.pkl", 'rb') as memFile:
         mem = pickle.load(memFile)
 else:
-    mem_capacity = 1000000
+    mem_capacity = 100000
     mem = ReplayMemory(mem_capacity)
 
-
+mpc.resetTrajectory()
 getTrajectoryResponse = mpc.getTrajectory()
 trajectoryLen = len(getTrajectoryResponse.get("result").get("times"))
 
@@ -107,7 +151,7 @@ try:
 
                 jsonControl = mpc.getControl(dt_control, x0, mpc_time)
                 u_result = jsonControl.get("result")
-                jsonStateFunctionValueDerivative = mpc.getValueFunctionStateDerivative(x0, mpc_time+1e-4)
+                #jsonStateFunctionValueDerivative = mpc.getValueFunctionStateDerivative(x0, mpc_time+1e-4)
 
                 mem.push(mpc_time, x0, None, None, None, None, u_result)
 
@@ -134,13 +178,9 @@ try:
 
         def solver_step_closure():
             loss = torch.zeros([1], dtype=dtype, device=device)  # running sum over samples
-            sampleU = torch.zeros([batch_size, INPUT_DIM], dtype=dtype, device=device)
-            predictU = torch.zeros([batch_size, INPUT_DIM], dtype=dtype, device=device)
+            MSE = 0.0
 
-            index = 0
             for sample in samples:
-                sum_u = 0.0
-                tx = torch.tensor(np.concatenate((sample.t, sample.x), axis=None), dtype=dtype, device=device, requires_grad=False)
                 ttx_net = torch.tensor(np.concatenate((sample.t, sample.x), axis=None), dtype=dtype, device=device, requires_grad=False)
                 p, u_pred = policy(ttx_net)
                 
@@ -148,23 +188,25 @@ try:
                     u_net = torch.matmul(p, u_pred)
                 else:
                     u_net = u_pred[0]
-
-                predictU[index] = u_net
-                sampleU[index] = torch.FloatTensor(sample.u0).to(device)
-                index = index + 1
-
-            loss = mseLoss_function(sampleU, predictU)
+                loss += mseLoss_function(u_net, torch.FloatTensor(sample.u0).to(device))
+                MSE += np.square(np.subtract(u_net.detach().numpy().astype('float64'), np.array(sample.u0))).sum()
+            
+            print("MSE ", MSE, " ,loss ", loss)
+            
             optimizer.zero_grad()
             loss.backward()
 
             global writeLogThisIteration
             if writeLogThisIteration:
-                writer.add_scalar('loss/perSample', loss.item(), it)
-                print('loss/perSample', loss.item())
+                writer.add_scalar('loss', loss.item(), it)
+                writer.add_scalar('MSE', MSE, it)
+                #writer.add_scalar('mseVerification', mseVerify, it)
+                #print('loss/allSamples', loss.item(), " ,MSE ", MSE)
+                #print("sampleU ", sampleU[batch_size-1])
+                #print("predictU ", predictU[batch_size-1])
                 #writer.add_scalar('loss/perSample', loss.item() / batch_size, it)
                 #writer.add_scalar('loss/constraintViolation', g1_norm / batch_size, it)
                 writeLogThisIteration = False
-
             return loss
 
         """
@@ -174,14 +216,14 @@ try:
             writer.add_scalar('metric/survival_time', survival_time, it)
             print("iteration", it, "oc_cost", oc_cost)
         """
-        if time.time() - last_policy_save_time > 5.0 * 60.0:
+        if time.time() - last_policy_save_time > 5.0 * 30.0:
             last_policy_save_time = time.time()
             now = datetime.datetime.now()
             save_path = "armPolicy/mpcPolicy_" + now.strftime("%Y-%m-%d_%H%M%S")
             print("Iteration", it, "saving policy to", save_path + ".pt")
             torch.save(policy, save_path + ".pt")
 
-
+        #print("Iteration", it, "mseVerification ", mseVerification(policy))
         optimizer.step(solver_step_closure)
         for param in policy.parameters():
             if(torch.isnan(param).any()):
