@@ -78,6 +78,12 @@ class ExpertMixturePolicy(torch.nn.Module):
         self.linear1 = torch.nn.Linear(d_in, self.n_hidden)
         self.activation1 = torch.tanh
 
+        self.linear2 = torch.nn.Linear(self.n_hidden, self.n_hidden)
+        self.activation2 = torch.tanh
+
+        self.linear3 = torch.nn.Linear(self.n_hidden, self.n_hidden)
+        self.activation3 = torch.tanh
+
         self.selector_net = torch.nn.Sequential(
             torch.nn.Linear(self.n_hidden, self.num_experts),
             # torch.nn.Softmax(dim=-1)
@@ -90,10 +96,12 @@ class ExpertMixturePolicy(torch.nn.Module):
 
     def forward(self, tx):
         z_h = self.activation1(self.linear1(tx))
-        pi_nonNormalized = self.selector_net(z_h)
+        z_h2 = self.activation2(self.linear2(z_h))
+        z_h3 = self.activation3(self.linear3(z_h2))
+        pi_nonNormalized = self.selector_net(z_h3)
         pi = pi_nonNormalized / pi_nonNormalized.sum()
 
-        u_experts = self.expert_net(z_h).reshape((self.num_experts, self.d_out))
+        u_experts = self.expert_net(z_h3).reshape((self.num_experts, self.d_out))
 
         return pi, u_experts
 

@@ -176,8 +176,9 @@ def control_Hamiltonian(tx, u_pred, dVdx, nu):
         hamiltonian += g1.dot(nu)
     return hamiltonian
 
-def MSE_Loss(u0, u_pred):
-    return np.sqrt(np.sum(np.power((u0-u_pred),2)))
+def MSE_Loss(u_pred, u0):
+    mseloss = torch.nn.MSELoss(reduction='sum')
+    return mseloss(u_pred, u0)
 
 
 def num_samples_per_trajectory_point(t, max_num_points, half_value_decay_t):
@@ -283,10 +284,10 @@ try:
                 x_result = state_vector_array()
                 u_result = input_vector_array()
                 mpc.getMpcSolution(t_result, x_result, u_result)
-                #K = mpc.getLinearFeedbackGain(t_result[0])
+                K = mpc.getLinearFeedbackGain(t_result[0])
                 # sample around the initial point and push it to the replay buffer
-                for i in range(1):
-                #for i in range(int(round(num_samples_per_trajectory_point(t_result[0], max_num_points=4, half_value_decay_t=1e10)))):
+                #for i in range(1):
+                for i in range(int(round(num_samples_per_trajectory_point(t_result[0], max_num_points=4, half_value_decay_t=1e10)))):
                     if i == 0:
                         x = x_result[0] # definitely push back the nominal point
                     else:
@@ -297,7 +298,7 @@ try:
                         nu = mpc.getStateInputConstraintLagrangian(t_result[0], x)
                     else:
                         nu = None
-                    mem.push(mpc_time, x, dVdx, None, nu, None, u_result[0])
+                    mem.push(mpc_time, x, dVdx, None, nu, None, u_result[0] + K.dot(x - x_result[0]), 0)
 
                 # increment state for next time step
                 ttx_torch = torch.tensor(np.concatenate((t_result[0], x_result[0]), axis=None),
@@ -336,13 +337,15 @@ try:
                     nu = None
                 for pi, u_pred_i in zip(p, u_pred): # loop through experts
                     sum_u += pi * u_pred_i
-                loss +=  MSE_Loss(sample.u0, sum_u)
+
                 #mpc_H += control_Hamiltonian(tx, torch.tensor(sample.u0), dVdx, nu)
 
                 if len(p) > 1:
                     u_net = torch.matmul(p, u_pred)
                 else:
                     u_net = u_pred[0]
+
+                loss +=  MSE_Loss(u_net, torch.FloatTensor(sample.u0).to(device))
 
                 if systemHasConstraints:
                     g1_norm += np.linalg.norm(mpc.getStateInputConstraint(sample.t, sample.x, u_net.detach().numpy().astype('float64')))
@@ -368,7 +371,7 @@ try:
         if time.time() - last_policy_save_time > 5.0 * 60.0:
             last_policy_save_time = time.time()
             now = datetime.datetime.now()
-            save_path = "tmp/mpcPolicy_" + now.strftime("%Y-%m-%d_%H%M%S")
+            save_path = "ballbot/1020/mpcPolicy_" + now.strftime("%Y-%m-%d_%H%M%S")
             print("Iteration", it, "saving policy to", save_path + ".pt")
             torch.save(policy, save_path + ".pt")
 
@@ -390,7 +393,7 @@ print("optimized policy parameters:")
 print(list(policy.named_parameters()))
 
 now = datetime.datetime.now()
-save_path = "tmp/mpcPolicy_" + now.strftime("%Y-%m-%d_%H%M%S")
+save_path = "ballbot/1020/mpcPolicy_" + now.strftime("%Y-%m-%d_%H%M%S")
 print("saving policy to", save_path + ".pt")
 torch.save(policy, save_path + ".pt")
 

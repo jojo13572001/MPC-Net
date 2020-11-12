@@ -58,6 +58,7 @@ def plot(save_path, t_end=10.0):
     #lineObjects = plt.plot(tx_history[:, 0:6])
     plt.legend(iter(lineObjects), ('px', 'py','thetaz','thetay','thetax'))
 
-plot(save_path="tmp2/mpcPolicy_2020-07-18_154713.pt", t_end=10.0)
+plot(save_path="ballbot/mpcPolicy_2020-10-20_025544.pt", t_end=10.0)
+#plot(save_path="tmp2/mpcPolicy_2020-07-18_154713.pt", t_end=10.0)
 #plot(save_path="tmp/mpcPolicy_2020-07-20_155720.pt", t_end=10.0)
 plt.show()

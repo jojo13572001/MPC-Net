@@ -1,0 +1,183 @@
+; Time Horizon
+mpcTimeHorizon
+{
+    timehorizon      0.3
+    numPartitions    10
+}
+
+; Mode sequence
+subsystemsSequence
+{
+    [0]     0
+}
+; Template mode sequence
+templateSubsystemsSequence
+{
+    [0]     0
+}
+templateSwitchingTimes
+{
+}
+
+; SLQ settings
+slq
+{
+    useNominalTimeForBackwardPass  0
+    preComputeRiccatiTerms         1
+    RiccatiIntegratorType          ODE45  ; ODE45, ADAMS_BASHFORTH, BULIRSCH_STOER, ADAMS_BASHFORTH_MOULTON
+    adams_integrator_dt            0.001
+
+    ddp
+    {
+        maxNumIterations               15    ; 50
+        minLearningRate                0.1   ; 0.1
+        maxLearningRate                1.0
+        minRelCost                     1e-3   ; 0.01
+        stateConstraintPenaltyCoeff    100.0
+        stateConstraintPenaltyBase     1.1
+        inequalityConstraintMu         100.0
+        inequalityConstraintDelta      1.1
+        meritFunctionRho               50.0
+        constraintStepSize             1.0   ; 1.0
+        displayInfo                    0
+        displayShortSummary            0
+
+        AbsTolODE                      1e-6    ;1e-6
+        RelTolODE                      1e-4    ;1e-4
+        minTimeStep                    1e-3
+        maxNumStepsPerSecond           50000
+
+        useMakePSD                     1
+        addedRiccatiDiagonal           1e-3
+        minAbsConstraint1ISE           5e-3
+        minRelConstraint1ISE           5e-6
+        checkNumericalStability        0
+
+        nThreads                       1
+        threadPriority                 0
+
+        useFeedbackPolicy              0
+        useRiccatiSolver               1
+
+    }
+
+    rollout
+    {
+        AbsTolODE                      1e-6    ;1e-6
+        RelTolODE                      1e-4    ;1e-4
+        minTimeStep                    1e-3
+        maxNumStepsPerSecond           50000
+        integratorType                 ODE45
+        checkNumericalStability        0
+    }
+}
+
+; MPC settings
+mpc
+{
+    runtimeMaxNumIterations        15
+    initMaxNumIterations           15
+    runtimeMinLearningRate         1.0
+    runtimeMaxLearningRate         1.0
+    initMaxLearningRate            1.0
+    initMinLearningRate            0.1
+    coldStart                      0
+    recedingHorizon                1     ; use receding horizon MPC
+    blockwiseMovingHorizon         0
+    useParallelRiccatiSolver       1     ; use disjoint riccati solver in MP case and recedingHorizon fashion
+    solutionTimeWindow             -1   ; [s]
+    mpcDesiredFrequency            100   ; [Hz]
+    mrtDesiredFrequency            400   ; [Hz]
+    debugPrint                     0
+}
+
+; initial state
+initialState
+{
+   (0,0) 0.0  ; 
+   (1,0) 0.0  ; 
+   (2,0) 0.0  ;
+   (3,0) 0.0  ;
+   (4,0) 0.0  ; 
+   (5,0) 0.0  ; 
+   (6,0) 0.0  ; 
+   (7,0) 0.0  ; 
+   (8,0) 0.0  ; 
+   (9,0) 0.0  ; 
+   (10,0) 0.0  ; 
+   (11,0) 0.0  ; 
+}
+
+; state weight matrix
+Q
+{
+   scaling 1e+0
+
+   (0,0) 9000.0  ; 
+   (1,1) 9000.0  ; 
+   (2,2) 9000.0  ;
+   (3,3) 400.0  ;
+   (4,4) 400.0  ;
+   (5,5) 400.0  ;
+   
+   (6,6) 0.0  ;
+   (7,7) 0.0  ; 
+   (8,8) 0.0  ; 
+   (9,9) 0.0  ;
+   (10,10) 0.0  ;
+   (11,11) 0.0  ;
+}
+
+; control weight matrix
+R
+{
+   scaling 1e+0
+
+   (0,0)  0.00001  ;
+   (1,1)  0.00001  ;
+   (2,2)  0.00001  ;
+   (3,3)  0.00001  ;
+   (4,4)  0.00001  ;
+   (5,5)  0.00001  ;
+}
+
+; final state weight matrix
+Q_final
+{
+   scaling 1e+0
+
+   (0,0) 0.0  ; 
+   (1,1) 0.0  ; 
+   (2,2) 0.0  ;
+   (3,3) 0.0  ;
+   (4,4) 0.0  ;
+   (5,5) 0.0  ;
+   
+   (6,6) 0.0  ;
+   (7,7) 0.0  ; 
+   (8,8) 0.0  ; 
+   (9,9) 0.0  ;
+   (10,10) 0.0  ;
+   (11,11) 0.0  ;
+}
+
+; final goal
+x_final
+{
+   (0,0) 0.0  ; 
+   (1,0) 0.0  ; 
+   (2,0) 0.0  ;
+   (3,0) 0.0  ;
+   (4,0) 0.0  ; 
+   (5,0) 0.0  ; 
+   
+   (6,0) 0.0  ; 
+   (7,0) 0.0  ; 
+   (8,0) 0.0  ; 
+   (9,0) 0.0  ; 
+   (10,0) 0.0  ; 
+   (11,0) 0.0  ; 
+}
+
+
+

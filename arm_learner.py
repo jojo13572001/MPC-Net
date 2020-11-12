@@ -5,216 +5,99 @@ import datetime
 import time
 import pickle
 from replay_memory import ReplayMemory
-import os
-import json
-
 # ugly workaround until shared library can be discovered properly with python3
-#import sys
-#sys.path.append(os.environ["HOME"]+"/catkin_ws/devel/lib/python3.6/dist-packages/ocs2_ballbot_example")
-
-#from BallbotPyBindings import mpc_interface, scalar_array, state_vector_array, input_vector_array, dynamic_vector_array, cost_desired_trajectories
+import jmpc
+import settings
 
 from PolicyNet import ExpertMixturePolicy as PolicyNet
 
-#mpc = mpc_interface("mpc", False)
+
+STATE_DIM = 12
+INPUT_DIM = 6
+mpc = jmpc.Jmpc(port=1234)
+pybulletClient = jmpc.Jmpc(port=1235)
+
 systemHasConstraints = False
-STATE_DIM = 14
-INPUT_DIM = 7
-"""
-def getTargetTrajectories():
-    desiredTimeTraj = scalar_array()
-    desiredTimeTraj.resize(1)
-    desiredTimeTraj[0] = 2.0
-
-    desiredInputTraj = dynamic_vector_array()
-    desiredInputTraj.resize(1)
-    desiredInputTraj[0] = np.zeros((mpc.INPUT_DIM, 1))
-
-    desiredStateTraj = dynamic_vector_array()
-    desiredStateTraj.resize(1)
-    desiredStateTraj[0] = np.zeros((mpc.STATE_DIM, 1))
-
-    return cost_desired_trajectories(desiredTimeTraj, desiredStateTraj, desiredInputTraj)
-
-
-targetTrajectories = getTargetTrajectories()
-
-mpc.reset(targetTrajectories)
-"""
-
+jointTorqueConstraint = np.array([104, 104, 69, 69, 34, 34])
+jointRadianLimit = np.array([3.14, 2.35, 2.61, 3.14, 2.56, 3.14])
+jointVelocityLimit = np.array([1.57, 1.57, 1.57, 1.57, 1.57, 1.57])
+learning_rate = 1e-3
+learning_iterations = 100000
+dt_control = 7./240.
 
 dtype = torch.float
 device = torch.device("cpu")
 #device = torch.device("cuda:0") # Uncomment this to run on GPU
-
-
 """
-class FlowMap(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, t, x, u):
-        #In the forward pass we receive a Tensor containing the input and return
-        #a Tensor containing the output. ctx is a context object that can be used
-        #to stash information for backward computation. You can cache arbitrary
-        #objects for use in the backward pass using the ctx.save_for_backward method.
-        x_cpu = x.cpu()
-        u_cpu = u.cpu()
-        ctx.save_for_backward(t, x_cpu, u_cpu)
-        x_np = x_cpu.t().detach().numpy().astype('float64')
-        u_np = u_cpu.t().detach().numpy().astype('float64')
-        xDot = torch.tensor(mpc.computeFlowMap(t, x_np, u_np), device=device, dtype=dtype)
-        return xDot
+def mseVerification(policy):
+    mpc.resetTrajectory()
+    getTrajectoryResponse = mpc.getTrajectory()
+    trajectoryLen = len(getTrajectoryResponse.get("result").get("times"))
 
-    @staticmethod
-    def backward(ctx, grad_output):
+    # prepare saving of MPC solution trajectory (always add first point of a slq run)
+    trajectoryLastTime = getTrajectoryResponse.get("result").get("times")[trajectoryLen-1] # length of trajectories to generate with MPC
+    dt = round(getTrajectoryResponse.get("result").get("times")[1] - getTrajectoryResponse.get("result").get("times")[0], 2) # 0.03s control duration
+    #trajectoryTime = np.linspace(0.0, trajectoryLastTime, trajectoryLen)
+    trajectoryTime = np.arange(0.0, trajectoryLastTime, dt)
+    last_policy_save_time = time.time()
 
-        #In the backward pass we receive a Tensor containing the gradient of the loss
-        #with respect to the output, and we need to compute the gradient of the loss
-        #with respect to the input.
- 
-        grad_t = grad_x = grad_u = None
-        t, x, u = ctx.saved_tensors
-        x_np = x.t().detach().numpy().astype('float64')
-        u_np = u.t().detach().numpy().astype('float64')
+    initState = getTrajectoryResponse.get("result").get("trajectory")[0]
+    initState.extend(np.zeros(int(STATE_DIM/2)))
 
-        if ctx.needs_input_grad[0]:
-            raise NotImplementedError("Derivative of dynamics w.r.t. time not available")
-        if ctx.needs_input_grad[1]:
-            mpc.setFlowMapDerivativeStateAndControl(t, x_np, u_np)
-            dfdx = torch.tensor(mpc.computeFlowMapDerivativeState(), device=device, dtype=dtype)
-            grad_x = torch.matmul(grad_output, dfdx).reshape((-1, x_np.size))
-        if ctx.needs_input_grad[2]:
-            mpc.setFlowMapDerivativeStateAndControl(t, x_np, u_np)
-            dfdu = torch.tensor(mpc.computeFlowMapDerivativeInput(), device=device, dtype=dtype)
-            grad_u = torch.matmul(grad_output, dfdu).reshape((-1, u_np.size))
-        return grad_t, grad_x, grad_u
+    x0 = initState
+    #x0[0] = np.random.uniform(-0.5, 0.5) # base x
+    #x0[1] = np.random.uniform(-0.5, 0.5) # base y
+    MSELoss = 0.0
+    for timeIndex in trajectoryTime: # mpc dummy loop
 
+        ttx_net = torch.tensor(np.concatenate((timeIndex, x0), axis=None), dtype=dtype, device=device, requires_grad=False)
+        p, u_pred = policy(ttx_net)
+        
+        if len(p) > 1:
+            u_net = torch.matmul(p, u_pred)
+        else:
+            u_net = u_pred[0]
 
-class IntermediateCost(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, t, x, u):
-        #In the forward pass we receive a Tensor containing the input and return
-        #a Tensor containing the output. ctx is a context object that can be used
-        #to stash information for backward computation. You can cache arbitrary
-        #objects for use in the backward pass using the ctx.save_for_backward method.
-        x_cpu = x.cpu()
-        u_cpu = u.cpu()
-        ctx.save_for_backward(t, x_cpu, u_cpu)
-        x_np = x_cpu.t().detach().numpy().astype('float64')
-        u_np = u_cpu.t().detach().numpy().astype('float64')
-        L = torch.tensor(mpc.getIntermediateCost(t, x_np, u_np), device=device, dtype=dtype)
-        return L
+        u_np = u_net.detach().numpy().astype('float64')
 
-    @staticmethod
-    def backward(ctx, grad_output):
-        #In the backward pass we receive a Tensor containing the gradient of the loss
-        #with respect to the output, and we need to compute the gradient of the loss
-        #with respect to the input.
-        grad_t = grad_x = grad_u = None
-        t, x, u = ctx.saved_tensors
-        x_np = x.t().detach().numpy().astype('float64')
-        u_np = u.t().detach().numpy().astype('float64')
+        #print("start policyReqResp, ", np.transpose(tx[1:])[0].tolist(), " ", tx[0][0])
+        computePolicyResponse = mpc.computePolicy(x0, timeIndex)
+        if computePolicyResponse == False :
+           print("Compute Policy Error!")
+           sys.exit(0)
+        
+        jsonControl = mpc.getControl(dt, x0, timeIndex)
+        MSELoss += np.square(np.subtract(u_np.tolist(), jsonControl)).sum() 
+        #print("index ", index,"time ",timeIndex, " ,control net ", u_np.tolist(), "control mpc ", jsonControl.get("result"))
+        jsonNextState = mpc.getNextState(jsonControl, dt, x0) #for mpc get next state
+        #jsonNextState = mpc.getNextState(u_np.tolist(), dt, x0) #for mpc-net get next state
+        
+        x0 = jsonNextState
 
-        if ctx.needs_input_grad[0]:
-            raise NotImplementedError("Derivative of RunningCost w.r.t. time not available")
-        if ctx.needs_input_grad[1]:
-            dLdx = torch.tensor([[mpc.getIntermediateCostDerivativeState(t, x_np, u_np)]], device=device, dtype=dtype)
-            grad_x = grad_output * dLdx
-        if ctx.needs_input_grad[2]:
-            dLdu = torch.tensor([[mpc.getIntermediateCostDerivativeInput(t, x_np, u_np)]], device=device, dtype=dtype)
-            grad_u = grad_output * dLdu
-        return grad_t, grad_x, grad_u
+    return MSELoss
+"""
+def mseLoss_function(u_pred, u0):
+    mseloss = torch.nn.MSELoss(reduction='sum')
+    return mseloss(u_pred, u0)
 
-
-class StateInputConstraint(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, t, x, u):
-        #In the forward pass we receive a Tensor containing the input and return
-        #a Tensor containing the output. ctx is a context object that can be used
-        #to stash information for backward computation. You can cache arbitrary
-        #objects for use in the backward pass using the ctx.save_for_backward method.
-        x_cpu = x.cpu()
-        u_cpu = u.cpu()
-        ctx.save_for_backward(t, x_cpu, u_cpu)
-        x_np = x_cpu.t().detach().numpy().astype('float64')
-        u_np = u_cpu.t().detach().numpy().astype('float64')
-        g1 = torch.tensor(mpc.getStateInputConstraint(t, x_np, u_np), device=device, dtype=dtype)
-        return g1
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        #In the backward pass we receive a Tensor containing the gradient of the loss
-        #with respect to the output, and we need to compute the gradient of the loss
-        #with respect to the input.
-        grad_t = grad_x = grad_u = None
-        t, x, u = ctx.saved_tensors
-        x_np = x.t().detach().numpy().astype('float64')
-        u_np = u.t().detach().numpy().astype('float64')
-
-        if ctx.needs_input_grad[0]:
-            raise NotImplementedError("Derivative of StateInputConstraint w.r.t. time not available")
-        if ctx.needs_input_grad[1]:
-            raise NotImplementedError("Derivative of StateInputConstraint w.r.t. state not available")
-        if ctx.needs_input_grad[2]:
-            dg1du = torch.tensor(mpc.getStateInputConstraintDerivativeControl(t, x_np, u_np), device=device, dtype=dtype)
-            grad_u = torch.matmul(grad_output, dg1du).reshape((-1, u_np.size))
-        return grad_t, grad_x, grad_u
-
-
-def control_Hamiltonian(tx, u_pred, dVdx, nu):
+def hamiltonian_loss_function(tx, u_pred, dVdx, nu):
     f = FlowMap.apply(tx[0], tx[1:], u_pred)
     L = IntermediateCost.apply(tx[0], tx[1:], u_pred)
-    hamiltonian = L + dVdx.dot(f)
+    loss = L + dVdx.dot(f)
     if systemHasConstraints:
         g1 = StateInputConstraint.apply(tx[0], tx[1:], u_pred)
-        hamiltonian += g1.dot(nu)
-    return hamiltonian
+        loss += g1.dot(nu)
+    return loss
 
-
-def num_samples_per_trajectory_point(t, max_num_points, half_value_decay_t):
-    #Calculates number of samples drawn for each nominal state point in trajectory
-    #:param t: Query time along trajectory
-    #:param max_num_points:
-    #:param half_value_decay_t: time into trajectory after which number of sampled point is halfed
-    #:return: Number of samples to be drawn
-    return max_num_points * np.exp(-np.log(2) * t / half_value_decay_t)
-
-
-def trajectoryCost(policy, duration, dt_control):
-    cost = 0.0  # running sum
-    numStartingPoints = 1
-    for _ in range(numStartingPoints):
-        startPos = np.zeros([mpc.STATE_DIM, 1])
-        tx = np.concatenate(([[0.0]], startPos))
-        for it in range(int(duration / dt_control)):
-            ttx_torch = torch.tensor(np.concatenate((tx[0, 0], tx[1:]), axis=None), dtype=dtype,
-                                   device=device, requires_grad=False)
-            p, u_pred = policy(ttx_torch)
-            if len(p) > 1:
-                u = torch.matmul(p, u_pred)
-            else:
-                u = u_pred[0]
-
-            u_np = u.t().detach().numpy().astype('float64')
-            cost += torch.tensor(mpc.getIntermediateCost(tx[0], tx[1:], u_np), device=device, dtype=dtype)
-            if np.isnan(cost):
-                return np.nan, tx[0]
-            dx = mpc.computeFlowMap(tx[0], tx[1:], u_np)
-
-            tx[1:] += dx.reshape(mpc.STATE_DIM, 1) * dt_control
-            tx[0, 0] += dt_control
-    return cost, duration
-"""
-
-def MSE_Loss(u0, u_pred):
-    mseloss = torch.nn.MSELoss()
-    return mseloss(u0, u_pred)
 
 writer = SummaryWriter()
 
-
-load_policy = False
-if load_policy:
-    save_path = "data/policy.pt"
+if settings.loadPolicy:
+    #save_path = "armPolicy/alphaMix_1014/single_state_2_layers/mpcPolicy_2020-10-20_164518.pt"
+    #save_path = "armPolicy/alphaMix_1014/single_state_2_layers/keepTrainingWithoutSampling/mpcPolicy_2020-10-20_175406.pt"
+    #save_path = "armPolicy/alphaMix_1014/single_state_2_layers/keepTrainingWithoutSampling/175636/mpcPolicy_2020-10-28_020101.pt"
+    #save_path = "armPolicy/pyBullet/1105/mpcPolicy_2020-11-06_094457.pt"
+    save_path = "armPolicy/pyBullet/1105/094457/mpcPolicy_2020-11-06_112213.pt"
     policy = torch.load(save_path)
     policy.eval()
 else:
@@ -222,109 +105,207 @@ else:
 
 policy.to(device)
 
-print("Initial policy parameters:")
+#print("Initial policy parameters:")
 #print(list(policy.named_parameters()))
 
-learning_rate = 1e-2
+
 optimizer = torch.optim.Adam(policy.parameters(), lr=learning_rate)
 
 
-load_memory = False
-if load_memory:
-    with open("data/memory.pkl", 'rb') as memFile:
+if settings.loadMemory:
+    settings.enableSampling = False
+    with open("armPolicy/pyBullet/1105/094457/mpcPolicy_2020-11-06_112443_memory.pkl", 'rb') as memFile:
         mem = pickle.load(memFile)
 else:
-    mem_capacity = 2000
+    mem_capacity = 100000
     mem = ReplayMemory(mem_capacity)
 
-#read string line by line and convert to float
-
-f = open("mpcData.txt", "r")
-#data = json.load(f)
-lines = [line for line in f.readlines()]
-f.close()
-
-
-data = [[0.0]*(STATE_DIM+INPUT_DIM+1)  for i in range(len(lines))]
-for i in range(len(lines)):
-    data[i] = [float(val) for val in lines[i].split()]
-    mem.push(data[i][0], data[i][1:STATE_DIM+1], None, None, None, None, data[i][STATE_DIM+1:STATE_DIM+INPUT_DIM+1])
-
+"""
+print("start sampling ")
+while True:
+    temps = mem.sample(32)
+    for sample in temps:
+        if sample.t < 0.05 and sample.t > 0.0:
+           print("sample.t ",sample.t, " ,sample.x ", sample.x)
+           print("sample.u0 ", sample.u0, "\n")
+           break
+print("finish sampling ")
+"""
+getTrajectoryResponse = mpc.getTrajectory()
+trajectoryTimes = getTrajectoryResponse.get("result").get("times")
+trajectoryLen = len(trajectoryTimes)
 
 # prepare saving of MPC solution trajectory (always add first point of a slq run)
-#mpc_traj_len_sec = 3.0 # length of trajectories to generate with MPC
-#dt_control = 1.0/400. # 400 Hz control frequency
-#mpc_traj_t = np.linspace(0.0, mpc_traj_len_sec, int(mpc_traj_len_sec/dt_control))
+trajectoryLastTime = trajectoryTimes[trajectoryLen-1] # length of trajectories to generate with MPC
+#mpc_traj_t = np.linspace(0.0, trajectoryLastTime, trajectoryLen)
+lastPolicySaveTime = time.time()
 
 
-last_policy_save_time = time.time()
+trajectoryStates = getTrajectoryResponse.get("result").get("trajectory")
+initState = trajectoryStates[0].copy()
+initState.extend(np.zeros(int(STATE_DIM/2)))
 
-learning_iterations = 10000
+if settings.enablePybulletTraining == True:
+   setInitStateResponse = pybulletClient.setInitState(1./240., initState, trajectoryLen)
+   if setInitStateResponse == False:
+      print("set Initial State Response Error!")
+      sys.exit(0)
 
+def sampling(it):
+    alpha_mix = np.clip(1.0 - 1.0 * it / learning_iterations, 0.2, 1.0)
+
+    # run data collection (=MPC) less frequently than the policy updates
+    mpc_decimation = 1 if len(mem) < 15000 else 500
+    x0 = []
+    if it % mpc_decimation == 0:
+
+        mpc.resetTrajectory()
+        mpc.getTrajectory()
+        
+        if settings.enablePybulletTraining == True:
+           x0 = pybulletClient.setInitTrainingState(it, learning_iterations)
+           print("x0 ", x0)
+        else:
+           x0 = initState.copy()
+        #x0[0] = np.random.uniform(-0.5, 0.5) # base x
+        #x0[1] = np.random.uniform(-0.5, 0.5) # base y
+
+        print("learning_iterations ", it, ", proportion of MPC policy is", alpha_mix)
+        #print("starting from", x0)
+
+        for timeIndex in range(trajectoryLen-1): # mpc dummy loop
+            
+            currentTime = dt_control*timeIndex
+            computePolicyResponse = mpc.computePolicy(x0, currentTime)
+
+            if computePolicyResponse == False :
+               print("Compute Policy Error!")
+               break
+
+            u_result = mpc.getControl(dt_control, x0, currentTime)
+            
+            trajectoryNextVelocity = (np.subtract(trajectoryStates[timeIndex+1], trajectoryStates[timeIndex])/dt_control).tolist()
+            trajectoryNextState = trajectoryStates[timeIndex+1] + trajectoryNextVelocity
+            mem.push(currentTime, x0, None, None, None, None, u_result, trajectoryNextState)
+            #jsonStateFunctionValueDerivative = mpc.getValueFunctionStateDerivative(x0, timeIndex+1e-4)
+
+            # increment state for next time step
+            ttx_torch = torch.tensor(np.concatenate((currentTime, x0), axis=None), dtype=torch.float, requires_grad=False)
+            #ttx_torch = torch.tensor(np.concatenate((currentTime, trajectoryNextState, x0), axis=None), dtype=torch.float, requires_grad=False)
+            p, u_net = policy(ttx_torch)
+            if len(p) > 1:
+                u_net = torch.matmul(p, u_net)
+            else:
+                u_net = u_net[0]
+
+            uNetControl = u_net.detach().numpy().astype('float64')
+            u_mixed = alpha_mix * np.array(u_result) + (1.0 - alpha_mix) * uNetControl
+
+            #print("############ MPC suggenst control ", u_result,  " at time ", currentTime, " with index ", timeIndex)
+            """
+            if np.any(np.greater(np.abs(u_mixed), jointTorqueConstraint)) == True:
+               print("############ Alpha Mixing Torque over Limit ", u_mixed,  " at time ", currentTime, " with state ", x0)
+               if settings.enablePybulletTraining == True:
+                  pybulletClient.getNextState(u_mixed.tolist(), dt_control, x0, True)
+               break
+            """
+            if settings.enablePybulletTraining == True:
+               x0 = pybulletClient.getNextState(u_mixed.tolist(), dt_control, x0) #for pyBullet get next state
+            else:
+               x0 = mpc.getNextState(u_mixed.tolist(), dt_control, x0)
+
+            #check next state can't be over limit
+            if np.any(np.greater(np.abs(np.array(x0[:int(STATE_DIM/2)])), jointRadianLimit)) == True:
+               print("############### mpc calculate nextState over Limit ",x0,  " at time ", currentTime)
+               if settings.enablePybulletTraining == True:
+                  pybulletClient.getNextState(u_mixed.tolist(), dt_control, x0, True)
+               break
+
+            if np.any(np.greater(np.abs(x0[int(STATE_DIM/2):]), jointVelocityLimit)) == True:
+               print("############### mpc calculate velocity over limit ",x0,  ", at time ", currentTime)
+               if settings.enablePybulletTraining == True:
+                  pybulletClient.getNextState(u_mixed.tolist(), dt_control, x0, True)
+               break
+        print("mpc ended up at ", x0)
+        
 print("==============\nStarting training\n==============")
 try:
     for it in range(learning_iterations):
+        if settings.enableSampling == True:
+           sampling(it)
 
         # extract batch of samples from replay memory
         batch_size = 2**5
+
+        
         samples = mem.sample(batch_size)
+        """
+        samples = []
+        while(len(samples)<batch_size):
+            temps = mem.sample(batch_size)
+            for sample in temps:
+                if sample.t >= 2.8:
+                   samples.append(sample)
+                if len(samples)==batch_size:
+                   break
+        """
 
         writeLogThisIteration = True
 
         def solver_step_closure():
             loss = torch.zeros([1], dtype=dtype, device=device)  # running sum over samples
-            #mpc_H = torch.zeros([1], dtype=dtype, device=device)  # running sum over samples
-            #g1_norm = 0.0  # running sum over samples
+            #MSE = 0.0
+
             for sample in samples:
-                sum_u = torch.zeros([INPUT_DIM], dtype=dtype, device=device, requires_grad=False)
-                tx = torch.tensor(np.concatenate((sample.t, sample.x), axis=None), dtype=dtype, device=device, requires_grad=False)
                 ttx_net = torch.tensor(np.concatenate((sample.t, sample.x), axis=None), dtype=dtype, device=device, requires_grad=False)
+                #ttx_net = torch.tensor(np.concatenate((sample.nx, sample.x), axis=None), dtype=dtype, device=device, requires_grad=False)
                 p, u_pred = policy(ttx_net)
-                #dVdx = torch.tensor(sample.dVdx, dtype=dtype, device=device, requires_grad=False)
-                #if systemHasConstraints:
-                    #nu = torch.tensor(sample.nu, dtype=dtype, device=device, requires_grad=False)
-                #else:
-                    #nu = None
-                for pi, u_pred_i in zip(p, u_pred): # loop through experts
-                    sum_u += torch.mul(u_pred_i, pi)
-                loss +=  MSE_Loss(torch.tensor(sample.u0), sum_u)
-                #mpc_H += control_Hamiltonian(tx, torch.tensor(sample.u0), dVdx, nu)
-
-                #if len(p) > 1:
-                u_net = torch.matmul(p, u_pred)
-                #else:
-                #    u_net = u_pred[0]
-
-                #if systemHasConstraints:
-                    #g1_norm += np.linalg.norm(mpc.getStateInputConstraint(sample.t, sample.x, u_net.detach().numpy().astype('float64')))
-
+                
+                if len(p) > 1:
+                    u_net = torch.matmul(p, u_pred)
+                else:
+                    u_net = u_pred[0]
+                loss += mseLoss_function(u_net, torch.FloatTensor(sample.u0).to(device))
+                #MSE += np.square(np.subtract(u_net.detach().numpy().astype('float64'), np.array(sample.u0))).sum()
+            
+            print("iter ", it, " ,loss ", loss, "mem ", len(mem))
+            
             optimizer.zero_grad()
             loss.backward()
 
             global writeLogThisIteration
             if writeLogThisIteration:
-                writer.add_scalar('loss/perSample', loss.item() / batch_size, it)
-                print('loss/perSample ', loss.item() / batch_size, it)
+                writer.add_scalar('loss', loss.item(), it)
+                writer.add_scalar('mem', len(mem), it)
+                #writer.add_scalar('mseVerification', mseVerify, it)
+                #print('loss/allSamples', loss.item(), " ,MSE ", MSE)
+                #print("sampleU ", sampleU[batch_size-1])
+                #print("predictU ", predictU[batch_size-1])
+                #writer.add_scalar('loss/perSample', loss.item() / batch_size, it)
                 #writer.add_scalar('loss/constraintViolation', g1_norm / batch_size, it)
                 writeLogThisIteration = False
-
             return loss
 
-
-        #if it % 200 == 0:
-        #    oc_cost, survival_time = trajectoryCost(policy=policy, duration=mpc_traj_len_sec, dt_control=dt_control)
-        #    writer.add_scalar('metric/oc_cost', oc_cost, it)
-        #    writer.add_scalar('metric/survival_time', survival_time, it)
-        #    print("iteration", it, "oc_cost", oc_cost)
-
-        if time.time() - last_policy_save_time > 5.0 * 60.0:
-            last_policy_save_time = time.time()
+        """
+        if it % 200 == 0:
+            oc_cost, survival_time = trajectoryCost(policy=policy, duration=mpc_traj_len_sec, dt_control=dt_control)
+            writer.add_scalar('metric/oc_cost', oc_cost, it)
+            writer.add_scalar('metric/survival_time', survival_time, it)
+            print("iteration", it, "oc_cost", oc_cost)
+        """
+        #finalDiff = np.abs(np.subtract(currentStateList[:int(STATE_DIM/2)], mpcTrajectoryStates[-1]))
+        #print("Final Diff ", np.subtract(currentStateList[:int(STATE_DIM/2)], mpcTrajectoryStates[-1]))
+        #if time.time() - lastPolicySaveTime > 5.0:
+        if time.time() - lastPolicySaveTime > 5.0 * 30.0:
+            lastPolicySaveTime = time.time()
             now = datetime.datetime.now()
-            save_path = "armPolicy/mpcPolicy_" + now.strftime("%Y-%m-%d_%H%M%S")
-            print("Iteration", it, "saving policy to", save_path + ".pt")
+            #save_path = "armPolicy/alphaMix_1014/single_state_2_layers/keepTrainingWithoutSampling/175636/020101/mpcPolicy_" + now.strftime("%Y-%m-%d_%H%M%S")
+            #save_path = "armPolicy/pyBullet/1105/094457/112213/mpcPolicy_" + now.strftime("%Y-%m-%d_%H%M%S")
+            save_path = "armPolicy/pyBullet/1113/mpcPolicy_" + now.strftime("%Y-%m-%d_%H%M%S")
+            print("Iteration ", it, " saving policy to", save_path + ".pt")
             torch.save(policy, save_path + ".pt")
 
-
+        #print("Iteration", it, "mseVerification ", mseVerification(policy))
         optimizer.step(solver_step_closure)
         for param in policy.parameters():
             if(torch.isnan(param).any()):
@@ -337,17 +318,16 @@ except KeyboardInterrupt:
     pass
 
 
-print("optimized policy parameters:")
-#print(list(policy.named_parameters()))
-
 now = datetime.datetime.now()
-save_path = "armPolicy/mpcPolicy_" + now.strftime("%Y-%m-%d_%H%M%S")
+save_path = "armPolicy/pyBullet/1113/mpcPolicy_" + now.strftime("%Y-%m-%d_%H%M%S")
+#save_path = "armPolicy/pyBullet/1105/094457/112213/mpcPolicy_" + now.strftime("%Y-%m-%d_%H%M%S")
+#save_path = "armPolicy/alphaMix_1014/single_state_2_layers/keepTrainingWithoutSampling/175636/020101/mpcPolicy_" + now.strftime("%Y-%m-%d_%H%M%S")
 print("saving policy to", save_path + ".pt")
-torch.save(policy, save_path + ".pt")
+#torch.save(policy, save_path + ".pt")
 
-# print("Saving data to", save_path+"_memory.pkl")
-# with open(save_path+"_memory.pkl", 'wb') as outputFile:
-#     pickle.dump(mem, outputFile)
+print("Saving data to", save_path+"_memory.pkl")
+with open(save_path+"_memory.pkl", 'wb') as outputFile:
+     pickle.dump(mem, outputFile)
 
 
 writer.close()
