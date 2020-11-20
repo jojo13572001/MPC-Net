@@ -21,7 +21,7 @@ systemHasConstraints = False
 jointTorqueConstraint = np.array([104, 104, 69, 69, 34, 34])
 jointRadianLimit = np.array([3.14, 2.35, 2.61, 3.14, 2.56, 3.14])
 jointVelocityLimit = np.array([1.57, 1.57, 1.57, 1.57, 1.57, 1.57])
-learning_rate = 1e-3
+learning_rate = 1e-7
 learning_iterations = 100000
 dt_control = 7./240.
 
@@ -97,7 +97,7 @@ if settings.loadPolicy:
     #save_path = "armPolicy/alphaMix_1014/single_state_2_layers/keepTrainingWithoutSampling/mpcPolicy_2020-10-20_175406.pt"
     #save_path = "armPolicy/alphaMix_1014/single_state_2_layers/keepTrainingWithoutSampling/175636/mpcPolicy_2020-10-28_020101.pt"
     #save_path = "armPolicy/pyBullet/1105/mpcPolicy_2020-11-06_094457.pt"
-    save_path = "armPolicy/pyBullet/1105/094457/mpcPolicy_2020-11-06_112213.pt"
+    save_path = "armPolicy/pyBullet/1115/161926/mpcPolicy_2020-11-15_225649.pt"
     policy = torch.load(save_path)
     policy.eval()
 else:
@@ -114,7 +114,7 @@ optimizer = torch.optim.Adam(policy.parameters(), lr=learning_rate)
 
 if settings.loadMemory:
     settings.enableSampling = False
-    with open("armPolicy/pyBullet/1105/094457/mpcPolicy_2020-11-06_112443_memory.pkl", 'rb') as memFile:
+    with open("armPolicy/pyBullet/1115/161926/mpcPolicy_2020-11-15_233515_memory.pkl", 'rb') as memFile:
         mem = pickle.load(memFile)
 else:
     mem_capacity = 100000
@@ -235,11 +235,11 @@ try:
            sampling(it)
 
         # extract batch of samples from replay memory
-        batch_size = 2**5
+        batch_size = 2**3
 
         
         samples = mem.sample(batch_size)
-        """
+        
         samples = []
         while(len(samples)<batch_size):
             temps = mem.sample(batch_size)
@@ -248,7 +248,7 @@ try:
                    samples.append(sample)
                 if len(samples)==batch_size:
                    break
-        """
+        
 
         writeLogThisIteration = True
 
@@ -296,12 +296,12 @@ try:
         #finalDiff = np.abs(np.subtract(currentStateList[:int(STATE_DIM/2)], mpcTrajectoryStates[-1]))
         #print("Final Diff ", np.subtract(currentStateList[:int(STATE_DIM/2)], mpcTrajectoryStates[-1]))
         #if time.time() - lastPolicySaveTime > 5.0:
-        if time.time() - lastPolicySaveTime > 5.0 * 30.0:
+        if time.time() - lastPolicySaveTime > 2.0:
             lastPolicySaveTime = time.time()
             now = datetime.datetime.now()
             #save_path = "armPolicy/alphaMix_1014/single_state_2_layers/keepTrainingWithoutSampling/175636/020101/mpcPolicy_" + now.strftime("%Y-%m-%d_%H%M%S")
             #save_path = "armPolicy/pyBullet/1105/094457/112213/mpcPolicy_" + now.strftime("%Y-%m-%d_%H%M%S")
-            save_path = "armPolicy/pyBullet/1113/mpcPolicy_" + now.strftime("%Y-%m-%d_%H%M%S")
+            save_path = "armPolicy/pyBullet/1115/161926/225649/mpcPolicy_" + now.strftime("%Y-%m-%d_%H%M%S")
             print("Iteration ", it, " saving policy to", save_path + ".pt")
             torch.save(policy, save_path + ".pt")
 
@@ -319,7 +319,7 @@ except KeyboardInterrupt:
 
 
 now = datetime.datetime.now()
-save_path = "armPolicy/pyBullet/1113/mpcPolicy_" + now.strftime("%Y-%m-%d_%H%M%S")
+save_path = "armPolicy/pyBullet/1115/161926/225649/mpcPolicy_" + now.strftime("%Y-%m-%d_%H%M%S")
 #save_path = "armPolicy/pyBullet/1105/094457/112213/mpcPolicy_" + now.strftime("%Y-%m-%d_%H%M%S")
 #save_path = "armPolicy/alphaMix_1014/single_state_2_layers/keepTrainingWithoutSampling/175636/020101/mpcPolicy_" + now.strftime("%Y-%m-%d_%H%M%S")
 print("saving policy to", save_path + ".pt")

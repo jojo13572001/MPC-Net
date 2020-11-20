@@ -84,8 +84,8 @@ def rendering(initTorques, color):
               break
            joint_positions = [state[0] for state in pybullet.getJointStates(robot, range(pybullet.getNumJoints(robot)))]
            joint_velocities = [state[1] for state in pybullet.getJointStates(robot, range(pybullet.getNumJoints(robot)))]
-           print("iter ", count/7, " ,receive joint torque ", joint_torques)
-           print("iter ", count/7, " ,current state ", joint_positions+joint_velocities)
+           #print("iter ", count/7, " ,receive joint torque ", joint_torques)
+           #print("iter ", count/7, " ,current state ", joint_positions+joint_velocities)
            #print(iter/7, " Received MPC Control ", joint_torques)
            if count%(7*lineLength) == 0:
               end_effector_xyz_start = pybullet.getLinkState(robot,7)[4]
@@ -170,7 +170,7 @@ showJointInfo()
 #print("world_position ", world_position, ", world_orientation ", world_orientation)
 ######################MPC###############################
 lineLength = 2
-initState, dt, trajectoryLen = pybulletServer.recvInitState()
+initState, dt, trajectoryLen, count = pybulletServer.recvInitState()
 
 ######################Training#########################
 if settings.enablePybulletTraining == True:
@@ -183,6 +183,7 @@ if settings.enablePybulletTraining == True:
 ######################MPC-Net Rendering###########################
 elif settings.currentRendering == "enableRendering":
    #Ploct MPC
+   #for i in range(count):
    initTorques, _= resetState(initState.copy())
    rendering(initTorques, [1,0,0])
    #Plot MPC-NET

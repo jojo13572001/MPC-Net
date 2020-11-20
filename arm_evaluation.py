@@ -7,6 +7,7 @@ import jmpc
 import time
 import sys
 import settings
+import shutil
 
 if settings.enablePybulletTraining == True:
    print("enablePybulletTraining = True, close evaluation app")
@@ -29,7 +30,7 @@ mpcTrajectoryStates = getTrajectoryResponse.get("result").get("trajectory")
 #for i in range(trajectoryLen-1):
     #print("time ",mpcTrajectoryTimes[i], " ,velocity ", np.subtract(mpcTrajectoryStates[i+1], mpcTrajectoryStates[i])/np.subtract(mpcTrajectoryTimes[i+1], mpcTrajectoryTimes[i]))
 
-"""
+
 def mseVerification(policy):
     getTrajectoryResponse = mpc.getTrajectory()
     trajectoryLen = len(getTrajectoryResponse.get("result").get("times"))
@@ -75,9 +76,20 @@ def mseVerification(policy):
         x0 = nextStateList.get("result")
 
     return MSELoss
-"""
 
-def plot(save_path, t_end=3.0):
+
+policyFiles = [x for x in os.listdir('armPolicy/pyBullet/1115/161926/233420') if x.endswith(".pt")]
+initState = mpcTrajectoryStates[0].copy()
+initState.extend(np.zeros(int(STATE_DIM/2)))
+dt = 7./240.
+
+setInitStateResponse = pybulletClient.setInitState(1./240., initState, trajectoryLen, len(policyFiles))
+print("setInitStateResponse ", setInitStateResponse)
+if setInitStateResponse == False:
+   print("set Initial State Response Error!")
+   sys.exit(0)
+
+def plot(save_path, t_end, file):
     policy = torch.load(save_path)
     pybullet_mpcnet_position_history = np.zeros((trajectoryLen, STATE_DIM + 1))
     pybullet_mpcnet_velocity_history = np.zeros((trajectoryLen, STATE_DIM + 1))
@@ -86,18 +98,9 @@ def plot(save_path, t_end=3.0):
     tx_history = np.zeros((trajectoryLen, STATE_DIM + 1))
     trajectory_history = np.zeros((trajectoryLen, STATE_DIM + 1))
 
-    initState = mpcTrajectoryStates[0].copy()
-    initState.extend(np.zeros(int(STATE_DIM/2)))
-
+    
     ############## MPC Rollout #####################
-    dt = 7./240.
     # Set pubullet robot arm initial position, control period and total control times
-    setInitStateResponse = pybulletClient.setInitState(1./240., initState, trajectoryLen)
-    print("setInitStateResponse ", setInitStateResponse)
-    if setInitStateResponse == False:
-       print("set Initial State Response Error!")
-       sys.exit(0)
-
     MSE = 0
     currentStateList = initState.copy()
     trajectory_history[0, 1:] = np.array(mpcTrajectoryStates[0] + [0]*int(STATE_DIM/2))
@@ -136,8 +139,8 @@ def plot(save_path, t_end=3.0):
     MSE = 0.0
     currentStateList = initState.copy()
     mpc.resetTrajectory()
-    print("MPC init State ", currentStateList[5])
     #only have to calculate trajectoryLen-1 control
+
     for timeIndex in range(trajectoryLen-1):
         #currentTime = mpcTrajectoryTimes[timeIndex]
         currentTime = dt*timeIndex
@@ -165,8 +168,16 @@ def plot(save_path, t_end=3.0):
 
         jsonControl = mpc.getControl(dt, currentStateList.copy(), currentTime)
 
-        MSE += np.square(np.subtract(u_np.tolist(), jsonControl)).sum()
-        print("MPC-Net index ", timeIndex,", Time ",currentTime," ,MSE ",MSE, " ,Control ", u_np.tolist(), "\n")
+        MSE += np.square(np.subtract(currentStateList[:6], mpcTrajectoryStates[timeIndex])).sum()
+        '''
+        if MSE>30000:
+           if timeIndex<40:
+              shutil.move("armPolicy/pyBullet/1115/"+file,"armPolicy/pyBullet/1115/x")
+           pybulletClient.getNextState(control, dt, currentStateList.copy(), True)
+           MSE = 0.
+           break
+        '''
+        print("MPC-Net index ", timeIndex,", Time ",currentTime," ,MSE loss",MSE, "\n")
 
         pybullet_mpcnet_position_history[timeIndex, 0] = currentTime
         pybullet_mpcnet_velocity_history[timeIndex, 0] = currentTime
@@ -178,8 +189,8 @@ def plot(save_path, t_end=3.0):
 
            nextStateList = mpc.getNextState(control, dt, currentStateList.copy()) #for mpc-net get next state
            #print("index ",timeIndex, " ,mpc nextStateList ", nextStateList[5])
-           pybullet_mpcnet_position_history[timeIndex, 1:int(STATE_DIM/2)+1] = nextStateList[:int(STATE_DIM/2)]
-           pybullet_mpcnet_velocity_history[timeIndex, 1:int(STATE_DIM/2)+1] = nextStateList[int(STATE_DIM/2):]
+           #pybullet_mpcnet_position_history[timeIndex, 1:int(STATE_DIM/2)+1] = nextStateList[:int(STATE_DIM/2)]
+           #pybullet_mpcnet_velocity_history[timeIndex, 1:int(STATE_DIM/2)+1] = nextStateList[int(STATE_DIM/2):]
 
            nextStateList = pybulletClient.getNextState(control, dt, currentStateList.copy()) #for pyBullet get next state
            #print("index ", timeIndex, " ,pybullet nextStateList ", nextStateList[5], "\n")
@@ -205,8 +216,9 @@ def plot(save_path, t_end=3.0):
            pybullet_mpcnet_velocity_history[timeIndex, 1:int(STATE_DIM/2)+1] = nextStateList[int(STATE_DIM/2):]
 
         currentStateList = nextStateList.copy()
-    print("MPC-Net Final State Diff ", np.subtract(currentStateList[:int(STATE_DIM/2)], mpcTrajectoryStates[-1]))
 
+    print("MPC-Net Final State Diff ", np.subtract(currentStateList[:int(STATE_DIM/2)], mpcTrajectoryStates[-1]), 'MSE Loss ', MSE)
+    
     f, axarr = plt.subplots(4,2)
     
     lineObjects = axarr[0][0].plot(trajectory_history[:trajectoryLen-1, 0], trajectory_history[:trajectoryLen-1, 1:int(STATE_DIM/2)+1])   #plot velocity
@@ -216,7 +228,7 @@ def plot(save_path, t_end=3.0):
     axarr[0][0].set_title("MPC State")
 
     lineObjects = axarr[0][1].plot(tx_history[:trajectoryLen-1, 0], tx_history[:trajectoryLen-1, 1:int(STATE_DIM/2)+1])   #plot velocity
-    axarr[0][1].legend(iter(lineObjects), ('q1', 'q2','q3','q4','q5','q6'))
+    #axarr[0][1].legend(iter(lineObjects), ('q1', 'q2','q3','q4','q5','q6'))
     axarr[0][1].set_ylim(-2, 2)
     axarr[0][1].grid(True)
     axarr[0][1].set_title("MPC-Net State")
@@ -228,7 +240,7 @@ def plot(save_path, t_end=3.0):
     axarr[1][0].grid(True)
 
     lineObjects = axarr[1][1].plot(tx_history[:trajectoryLen-1, 0], tx_history[:trajectoryLen-1, int(STATE_DIM/2)+1:])   #plot velocity
-    axarr[1][1].legend(iter(lineObjects), ('q7', 'q8','q9','q10','q11','q12'))
+    #axarr[1][1].legend(iter(lineObjects), ('q7', 'q8','q9','q10','q11','q12'))
     axarr[1][1].set_ylim(-2, 2)
     axarr[1][1].grid(True)
 
@@ -238,7 +250,7 @@ def plot(save_path, t_end=3.0):
     axarr[2][0].grid(True)
 
     lineObjects = axarr[2][1].plot(tx_history[:trajectoryLen-1, 0], tx_history[:trajectoryLen-1, int(STATE_DIM/2)+1:-1])   #plot velocity
-    axarr[2][1].legend(iter(lineObjects), ('q7', 'q8','q9','q10','q11','q12'))
+    #axarr[2][1].legend(iter(lineObjects), ('q7', 'q8','q9','q10','q11','q12'))
     axarr[2][1].set_ylim(-2, 2)
     axarr[2][1].grid(True)
 
@@ -248,7 +260,7 @@ def plot(save_path, t_end=3.0):
     axarr[3][0].grid(True)
 
     lineObjects = axarr[3][1].plot(mpcnet_control_history[:trajectoryLen-1, 0], mpcnet_control_history[:trajectoryLen-1, 1:int(STATE_DIM/2)+1])   #plot velocity
-    axarr[3][1].legend(iter(lineObjects), ('c1', 'c2','c3','c4','c5','c6'))
+    #axarr[3][1].legend(iter(lineObjects), ('c1', 'c2','c3','c4','c5','c6'))
     axarr[3][1].set_ylim(-50, 50)
     axarr[3][1].grid(True)
     
@@ -277,7 +289,10 @@ def plot(save_path, t_end=3.0):
     axarr[1][1].grid(True)
     axarr[1][1].set_title("pyBullet Next Velocity")
     """
-plot(save_path="armPolicy/pyBullet/1110/mpcPolicy_2020-11-10_062319.pt", t_end=trajectoryLastTime)
+#plot(save_path="armPolicy/pyBullet/1115/161926/233420/004124/mpcPolicy_2020-11-16_015155.pt", t_end=trajectoryLastTime)
+#plot(save_path="armPolicy/pyBullet/1115/161926/233420/004124/mpcPolicy_2020-11-16_011155.pt", t_end=trajectoryLastTime)
+#plot(save_path="armPolicy/pyBullet/1115/161926/233420/004124/mpcPolicy_2020-11-16_010655.pt", t_end=trajectoryLastTime)
+#plot(save_path="armPolicy/pyBullet/1115/161926/233420/mpcPolicy_2020-11-16_004124.pt", t_end=trajectoryLastTime)
 #plot(save_path="armPolicy/pyBullet/1105/094457/112213/mpcPolicy_2020-11-06_143418.pt", t_end=trajectoryLastTime)
 #plot(save_path="armPolicy/alphaMix_1014/single_state_2_layers/keepTrainingWithoutSampling/175636/020101/mpcPolicy_2020-10-28_025049.pt", t_end=trajectoryLastTime)
 #plot(save_path="armPolicy/alphaMix_1014/single_state_2_layers/keepTrainingWithoutSampling/mpcPolicy_2020-10-20_175406.pt", t_end=trajectoryMaxTime) #very good
@@ -291,4 +306,10 @@ plot(save_path="armPolicy/pyBullet/1110/mpcPolicy_2020-11-10_062319.pt", t_end=t
 #plot(save_path="armPolicy/next_sate_without_alpha_mixing/mpcPolicy_2020-10-12_201140.pt", t_end=trajectoryMaxTime)
 #plot(save_path="armPolicy/mpcPolicy_2020-10-07_020028.pt", t_end=trajectoryMaxTime)
 #plot(save_path="armPolicy/mpcPolicy_2020-10-07_020028.pt", t_end=trajectoryMaxTime)
+
+
+#for file in policyFiles:
+file = 'mpcPolicy_2020-11-15_225649.pt'
+print("\nFile Name ", file)
+plot("armPolicy/pyBullet/1115/161926/"+file, trajectoryLastTime, file)
 plt.show()

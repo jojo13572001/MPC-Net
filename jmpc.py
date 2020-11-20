@@ -32,8 +32,8 @@ class Jmpc:
 	  	  request = {"id":0, "jsonrpc":"2.0", "method":"get_value_function_state_derivative", "params":{"state":state,"time":timeStamp}}
 	  	  return self.zmq.sendJson(request)
 
-	  def setInitState(self, dt, initState, trajectoryLength):
-	  	  request = {"id":0, "jsonrpc":"2.0", "method":"set_init_state", "params":{"initial_state":initState,"delta_t":dt, "trajectoryLength":trajectoryLength}}
+	  def setInitState(self, dt, initState, trajectoryLength, count=0):
+	  	  request = {"id":0, "jsonrpc":"2.0", "method":"set_init_state", "params":{"initial_state":initState,"delta_t":dt, "trajectoryLength":trajectoryLength, "count":count}}
 	  	  return self.zmq.sendJson(request)
 
 	  def setInitTrainingState(self, it, learningIterations):
@@ -60,7 +60,7 @@ class JmpcServer:
 	  	  message = self.recvJson().get("params")
 	  	  response = {"id":0, "jsonrpc":"2.0", "result":True}
 	  	  self.zmq.responseJson(response)
-	  	  return message.get("initial_state"), message.get("delta_t"), message.get("trajectoryLength")
+	  	  return message.get("initial_state"), message.get("delta_t"), message.get("trajectoryLength"), message.get("count")
 
 	  def recvInitTrainingState(self, firstState):
 	  	  message = self.recvJson().get("params")
