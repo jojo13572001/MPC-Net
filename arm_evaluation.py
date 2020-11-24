@@ -7,6 +7,9 @@ import jmpc
 import time
 import sys
 import settings
+import shutil
+#from PolicyNet import ExpertMixturePolicy as PolicyNet
+#from PolicyNet_2Layer import ExpertMixturePolicy as PolicyNet_2Layer
 
 if settings.enablePybulletTraining == True:
    print("enablePybulletTraining = True, close evaluation app")
@@ -84,7 +87,7 @@ if setInitStateResponse == False:
    print("set Initial State Response Error!")
    sys.exit(0)
 
-def plot(save_path, t_end):
+def plot(save_path, policy):
     policy = torch.load(save_path)
     pybullet_mpcnet_position_history = np.zeros((trajectoryLen, STATE_DIM + 1))
     pybullet_mpcnet_velocity_history = np.zeros((trajectoryLen, STATE_DIM + 1))
@@ -154,13 +157,7 @@ def plot(save_path, t_end):
         pybullet_mpcnet_position_history[timeIndex, 0] = currentTime
         pybullet_mpcnet_velocity_history[timeIndex, 0] = currentTime
         if settings.currentRendering == "enableRendering":
-           if timeIndex < 0:
-              control = jsonControl
-           else: 
-              control = u_np.tolist()
-
-           #nextStateList = mpc.getNextState(control, dt, currentStateList.copy()) #for mpc-net get next state
-           nextStateList = pybulletClient.getNextState(control, dt, currentStateList.copy()) #for pyBullet get next state
+           nextStateList = pybulletClient.getNextState(u_np.tolist(), dt, currentStateList.copy()) #for pyBullet get next state
            pybullet_mpcnet_position_history[timeIndex, int(STATE_DIM/2)+1:] = nextStateList[:int(STATE_DIM/2)]
            pybullet_mpcnet_velocity_history[timeIndex, int(STATE_DIM/2)+1:] = nextStateList[int(STATE_DIM/2):]
         elif settings.currentRendering == "enablePureRendering":
@@ -225,9 +222,18 @@ def plot(save_path, t_end):
     lineObjects = axarr[3][1].plot(mpcnet_control_history[:trajectoryLen-1, 0], mpcnet_control_history[:trajectoryLen-1, 1:int(STATE_DIM/2)+1])   #plot velocity
     axarr[3][1].set_ylim(-50, 50)
     axarr[3][1].grid(True)
-    
 
-plot(save_path="armPolicy/pyBullet/1115/mpcPolicy_2020-11-15_225649.pt", t_end=trajectoryLastTime)
+
+if settings.currentRendering == "enablePureRendering":
+   shutil.copy("PolicyNet_2Layer.py","PolicyNet.py")
+   #the only two layer policy, we train it from mpc dynamic environment. Hard code path now.
+   policy = torch.load("armPolicy/pyBullet/1014/mpcPolicy_2020-10-28_025339.pt")
+   plot(save_path="armPolicy/pyBullet/1014/mpcPolicy_2020-10-28_025339.pt", policy=policy)
+else:
+   shutil.copy("PolicyNet_3Layer.py","PolicyNet.py")
+   #Formally we use three layer policy now, we train it from pybullet dynamic environment. Hard code path now.
+   policy = torch.load(settings.loadPolicyPath)
+   plot(save_path=settings.loadPolicyPath, policy=policy)
 #plot(save_path="armPolicy/pyBullet/1115/161926/233420/004124/mpcPolicy_2020-11-16_015155.pt", t_end=trajectoryLastTime)
 #plot(save_path="armPolicy/pyBullet/1115/161926/233420/004124/mpcPolicy_2020-11-16_011155.pt", t_end=trajectoryLastTime)
 #plot(save_path="armPolicy/pyBullet/1115/161926/233420/004124/mpcPolicy_2020-11-16_010655.pt", t_end=trajectoryLastTime)

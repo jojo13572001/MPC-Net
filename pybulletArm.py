@@ -109,9 +109,9 @@ def pureRendering(color, lineLength, jointStartIndex ,jointNum, robotID, traject
     end_effector_xyz_start = []
     end_effector_xyz_end = []
     lineLength = 2
-    while index+1 < (trajectoryLen-1):
+    while index+1 < trajectoryLen:
         state, index= pybulletServer.recvState()
-
+        print("~`````````````",state, index)
         for i in range(jointNum):
            pybullet.resetJointState(robotID, i+jointStartIndex, state[i])
 
@@ -175,10 +175,10 @@ if settings.enablePybulletTraining == True:
      rendering(initTorques, [1,0,0])
 
 ######################MPC-Net Rendering###########################
-elif settings.currentRendering == "enableRendering":
-   #Ploct MPC
-   initTorques, _= resetState(initState.copy())
-   rendering(initTorques, [1,0,0])
+#Ploct MPC
+initTorques, _= resetState(initState.copy())
+rendering(initTorques, [1,0,0])
+if settings.currentRendering == "enableRendering":
    #Plot MPC-NET
    initTorques, _ = resetState(initState.copy())
    rendering(initTorques, [0,0,1])

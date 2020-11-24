@@ -1,5 +1,5 @@
 renderMethods = ["enablePureRendering", "enableRendering", "enableResetStateRendering"]
-currentRendering = renderMethods[1]
+currentRendering = renderMethods[0]
 enablePybulletTraining = False
 enableSampling = True
 loadMemory = not enableSampling
