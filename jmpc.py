@@ -32,12 +32,12 @@ class Jmpc:
 	  	  request = {"id":0, "jsonrpc":"2.0", "method":"get_value_function_state_derivative", "params":{"state":state,"time":timeStamp}}
 	  	  return self.zmq.sendJson(request)
 
-	  def setInitState(self, dt, initState, trajectoryLength, count=0):
-	  	  request = {"id":0, "jsonrpc":"2.0", "method":"set_init_state", "params":{"initial_state":initState,"delta_t":dt, "trajectoryLength":trajectoryLength, "count":count}}
+	  def setInitState(self, dt, initState, trajectoryLength, learningIterations):
+	  	  request = {"id":0, "jsonrpc":"2.0", "method":"set_init_state", "params":{"initial_state":initState,"delta_t":dt, "trajectoryLength":trajectoryLength, "learningIterations":learningIterations}}
 	  	  return self.zmq.sendJson(request)
 
-	  def setInitTrainingState(self, it, learningIterations):
-	  	  request = {"id":0, "jsonrpc":"2.0", "method":"set_init_training_state", "params":{"it":it, "learningIterations":learningIterations}}
+	  def setInitTrainingState(self, it):
+	  	  request = {"id":0, "jsonrpc":"2.0", "method":"set_init_training_state", "params":{"it":it}}
 	  	  return self.zmq.sendJson(request).get("result").get("firstState")
 
 	  def setState(self, state, index):
@@ -60,13 +60,13 @@ class JmpcServer:
 	  	  message = self.recvJson().get("params")
 	  	  response = {"id":0, "jsonrpc":"2.0", "result":True}
 	  	  self.zmq.responseJson(response)
-	  	  return message.get("initial_state"), message.get("delta_t"), message.get("trajectoryLength"), message.get("count")
+	  	  return message.get("initial_state"), message.get("delta_t"), message.get("trajectoryLength"), message.get("learningIterations")
 
 	  def recvInitTrainingState(self, firstState):
 	  	  message = self.recvJson().get("params")
 	  	  response = {"id":0, "jsonrpc":"2.0", "result":{"firstState":firstState}}
 	  	  self.zmq.responseJson(response)
-	  	  return message.get("it"), message.get("learningIterations")
+	  	  return message.get("it")
 
 	  def recvState(self):
 	  	  message = self.recvJson().get("params")

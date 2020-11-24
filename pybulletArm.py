@@ -5,29 +5,23 @@ import json
 import zmq
 import settings
 
-###################################################################################
-
-
 pybulletServer = jmpc.JmpcServer(port=1235)
 
-#p.connect(p.GUI, options="--minGraphicsUpdateTimeMs=16000")
+#pybullet.connect(p.GUI, options="--minGraphicsUpdateTimeMs=16000")
 pybullet.connect(pybullet.GUI)
-#pybullet.resetSimulation()
 
 import pybullet_data
 pybullet.setAdditionalSearchPath(pybullet_data.getDataPath())
 
 #pybullet.resetSimulation()
 #pybullet.setPhysicsEngineParameter(numSolverIterations=150)
-jointTorqueConstraint = [104, 104, 69, 69, 34, 34]
-jointRadianLimit = [3.14, 2.35, 2.61, 3.14, 2.56, 3.14]
+jointTorqueLimit = [104, 104, 69, 69, 34, 34]
+jointPositionLimit = [3.14, 2.35, 2.61, 3.14, 2.56, 3.14]
 jointVelocityLimit = [1.57, 1.57, 1.57, 1.57, 1.57, 1.57]
 
 robotPosition = [0, 0, 0]
 pybullet.resetDebugVisualizerCamera(cameraDistance=1.7, cameraYaw=-110, cameraPitch=-20, cameraTargetPosition=robotPosition)
 plane = pybullet.loadURDF("plane.urdf")
-#robot = pybullet.loadURDF("kuka_experimental/kuka_kr210_support/urdf/kr210l150.urdf", [0, 0, 0], useFixedBase=1)  # use a fixed base!
-#robot = pybullet.loadURDF("TwoJointRobot_w_fixedJoints.urdf", robotPosition, useFixedBase=1)  # use a fixed base!
 robot = pybullet.loadURDF("elfin3_urdf/elfin3_orig.urdf", robotPosition, useFixedBase=1)  # use a fixed base!
 #position, orientation = pybullet.getBasePositionAndOrientation(robot)
 #print("Base postion ", position, "Base orientation ", orientation)
@@ -46,48 +40,53 @@ pybullet.changeDynamics(robot, -1, linearDamping=0, angularDamping=0, lateralFri
 for i in range(jointNum):
     pybullet.changeDynamics(robot, i+jointStartIndex, linearDamping=0, angularDamping=0, lateralFriction=0, spinningFriction=0, rollingFriction=0,
                                                       maxJointVelocity=jointVelocityLimit[i],
-                                                      jointLimitForce=jointTorqueConstraint[i],
-                                                      jointLowerLimit=-jointRadianLimit[i],
-                                                      jointUpperLimit=jointRadianLimit[i])
+                                                      jointLimitForce=jointTorqueLimit[i],
+                                                      jointLowerLimit=-jointPositionLimit[i],
+                                                      jointUpperLimit=jointPositionLimit[i])
 
 def resetState(resetState):
+    #reset arm to specified state and get current torque
+
+    #reset directly to specified state and forward simulation (this way can't get torque)
     for i in range(jointNum):
            pybullet.resetJointState(robot, i+jointStartIndex, resetState[i])
     pybullet.stepSimulation()
 
+
+    #reset again directly to specified state. Using POSITION_CONTROL, we can get torque
     for i in range(totoalJointNum):
         pybullet.setJointMotorControlArray(robot, range(jointStartIndex, jointStartIndex+jointNum), pybullet.POSITION_CONTROL,
                                            targetPositions=resetState[:jointNum])
 
+    #Using POSITION_CONTROL, we have to wait a moment to get into stable state
     for _ in range(240):
         pybullet.stepSimulation()
 
     joint_positions = [state[0] for state in pybullet.getJointStates(robot, range(pybullet.getNumJoints(robot)))]
     
-    # Disable the motors for torque control:
+    #Turn off automatical motor control
     pybullet.setJointMotorControlArray(robot, range(totoalJointNum), pybullet.VELOCITY_CONTROL, forces=[0]*totoalJointNum)
+
+    #Return current torque used in 'resetState'
     joint_velocities = [state[1] for state in pybullet.getJointStates(robot, range(pybullet.getNumJoints(robot)))]
     joint_torques = [state[3] for state in pybullet.getJointStates(robot, range(pybullet.getNumJoints(robot)))]
     return joint_torques, joint_positions[jointStartIndex:jointStartIndex+jointNum]+joint_velocities[jointStartIndex:jointStartIndex+jointNum]
 
 def rendering(initTorques, color):
-    count = 0
+    duration = 0
     end_effector_xyz_start = []
     end_effector_xyz_end = []
     lineLength = 2
-    while count<7*(trajectoryLen-1):
-        if (count%7) == 0:
-           #print(count/7, " Wait to Receive MPC Control")
+    while duration<7*(trajectoryLen-1):
+        if (duration%7) == 0:
+           #print(duration/7, " Wait to Receive MPC Control")
            joint_torques, stop = pybulletServer.recvControl()
            if stop == True:
               pybulletServer.responseCurrentState([])
               break
            joint_positions = [state[0] for state in pybullet.getJointStates(robot, range(pybullet.getNumJoints(robot)))]
            joint_velocities = [state[1] for state in pybullet.getJointStates(robot, range(pybullet.getNumJoints(robot)))]
-           #print("iter ", count/7, " ,receive joint torque ", joint_torques)
-           #print("iter ", count/7, " ,current state ", joint_positions+joint_velocities)
-           #print(iter/7, " Received MPC Control ", joint_torques)
-           if count%(7*lineLength) == 0:
+           if duration%(7*lineLength) == 0:
               end_effector_xyz_start = pybullet.getLinkState(robot,7)[4]
 
         pybullet.setJointMotorControlArray(robot, range(totoalJointNum), pybullet.TORQUE_CONTROL, forces=[0,0]+
@@ -95,16 +94,14 @@ def rendering(initTorques, color):
                                                                                                          [0,0])
         pybullet.stepSimulation()
 
-        if (count%7) == 6:
+        if (duration%7) == 6:
            joint_positions = [state[0] for state in pybullet.getJointStates(robot, range(pybullet.getNumJoints(robot)))]
            joint_velocities = [state[1] for state in pybullet.getJointStates(robot, range(pybullet.getNumJoints(robot)))]
-           #print(count/7, " Returning Final State ", joint_positions[2:2+jointNum]+joint_velocities[2:2+jointNum])
            pybulletServer.responseCurrentState(joint_positions[jointStartIndex:jointStartIndex+jointNum]+joint_velocities[jointStartIndex:jointStartIndex+jointNum])
-           if count%(7*lineLength) == 6:
+           if duration%(7*lineLength) == 6:
               end_effector_xyz_end = pybullet.getLinkState(robot,7)[4]
               pybullet.addUserDebugLine(end_effector_xyz_start, end_effector_xyz_end, color, lineWidth=2)
-           #print(count/7, " Finish returning Executing MPC Control Final State ", joint_positions[2:2+jointNum]+joint_velocities[2:2+jointNum])
-        count+=1
+        duration+=1
 
 def pureRendering(color, lineLength, jointStartIndex ,jointNum, robotID, trajectoryLen):
     index = 0
@@ -135,7 +132,6 @@ def resetStateRendering(color, lineLength, jointStartIndex ,jointNum, robot, tra
         state, index= pybulletServer.recvState()
         joint_torques = pybulletServer.recvControl()
         
-        print("index ", index, " recv state ", state[5])
         resetState(state)
         pybullet.setJointMotorControlArray(robot, range(totoalJointNum), pybullet.TORQUE_CONTROL, forces=[0,0]+
                                                                                                          joint_torques + 
@@ -165,25 +161,22 @@ def showJointInfo():
     print("###########################################################################################")
 
 
-showJointInfo()
-#world_position, world_orientation = pybullet.getLinkState(robot, jointStartIndex)[:2]
-#print("world_position ", world_position, ", world_orientation ", world_orientation)
-######################MPC###############################
+#showJointInfo()
+
 lineLength = 2
-initState, dt, trajectoryLen, count = pybulletServer.recvInitState()
+initState, dt, trajectoryLen, learningIterations = pybulletServer.recvInitState()
 
 ######################Training#########################
+learningIterationIndex = 0
 if settings.enablePybulletTraining == True:
-   while True:
+   while (learningIterationIndex+1 < learningIterations):
      initTorques, firstState = resetState(initState.copy())
-     it, learningIterations = pybulletServer.recvInitTrainingState(firstState)
+     learningIterationIndex = pybulletServer.recvInitTrainingState(firstState)
      rendering(initTorques, [1,0,0])
-     if (it+1) >= learningIterations:
-        break
+
 ######################MPC-Net Rendering###########################
 elif settings.currentRendering == "enableRendering":
    #Ploct MPC
-   #for i in range(count):
    initTorques, _= resetState(initState.copy())
    rendering(initTorques, [1,0,0])
    #Plot MPC-NET
