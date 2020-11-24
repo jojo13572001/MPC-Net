@@ -227,7 +227,7 @@ def plot(save_path, t_end):
     axarr[3][1].grid(True)
     
 
-plot(save_path="armPolicy/pyBullet/1115/161926/mpcPolicy_2020-11-15_225649.pt", t_end=trajectoryLastTime)
+plot(save_path="armPolicy/pyBullet/1115/mpcPolicy_2020-11-15_225649.pt", t_end=trajectoryLastTime)
 #plot(save_path="armPolicy/pyBullet/1115/161926/233420/004124/mpcPolicy_2020-11-16_015155.pt", t_end=trajectoryLastTime)
 #plot(save_path="armPolicy/pyBullet/1115/161926/233420/004124/mpcPolicy_2020-11-16_011155.pt", t_end=trajectoryLastTime)
 #plot(save_path="armPolicy/pyBullet/1115/161926/233420/004124/mpcPolicy_2020-11-16_010655.pt", t_end=trajectoryLastTime)
