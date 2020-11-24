@@ -59,9 +59,6 @@ getTrajectoryResponse = mpc.getTrajectory()
 trajectoryTimes = getTrajectoryResponse.get("result").get("times")
 trajectoryLen = len(trajectoryTimes)
 
-# prepare saving of MPC solution trajectory (always add first point of a slq run)
-trajectoryLastTime = trajectoryTimes[trajectoryLen-1] # length of trajectories to generate with MPC
-#mpc_traj_t = np.linspace(0.0, trajectoryLastTime, trajectoryLen)
 lastPolicySaveTime = time.time()
 
 
@@ -194,7 +191,7 @@ try:
                 writeLogThisIteration = False
             return loss
 
-        if time.time() - lastPolicySaveTime > 300 * 5:
+        if time.time() - lastPolicySaveTime > 300:
             lastPolicySaveTime = time.time()
             now = datetime.datetime.now()
             save_path = settings.save_path + now.strftime("%Y-%m-%d_%H%M%S")
