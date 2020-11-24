@@ -45,10 +45,6 @@ else:
 
 policy.to(device)
 
-#print("Initial policy parameters:")
-#print(list(policy.named_parameters()))
-
-
 optimizer = torch.optim.Adam(policy.parameters(), lr=learning_rate)
 
 if settings.loadMemory:
@@ -125,7 +121,7 @@ def sampling(it):
             uNetControl = u_net.detach().numpy().astype('float64')
             u_mixed = alpha_mix * np.array(u_result) + (1.0 - alpha_mix) * uNetControl
 
-            #print("############ MPC suggenst control ", u_result,  " at time ", currentTime, " with index ", timeIndex)
+            #currently turning off Torque Limit whiling training because it will interrupt almost all rollout
             """
             if np.any(np.greater(np.abs(u_mixed), jointTorqueConstraint)) == True:
                print("############ Alpha Mixing Torque over Limit ", u_mixed,  " at time ", currentTime, " with state ", x0)

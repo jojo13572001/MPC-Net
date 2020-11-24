@@ -72,7 +72,7 @@ def resetState(resetState):
     joint_torques = [state[3] for state in pybullet.getJointStates(robot, range(pybullet.getNumJoints(robot)))]
     return joint_torques, joint_positions[jointStartIndex:jointStartIndex+jointNum]+joint_velocities[jointStartIndex:jointStartIndex+jointNum]
 
-def rendering(initTorques, color):
+def pybulletRendering(initTorques, color):
     duration = 0
     end_effector_xyz_start = []
     end_effector_xyz_end = []
@@ -103,7 +103,7 @@ def rendering(initTorques, color):
               pybullet.addUserDebugLine(end_effector_xyz_start, end_effector_xyz_end, color, lineWidth=2)
         duration+=1
 
-def pureRendering(color, lineLength, jointStartIndex ,jointNum, robotID, trajectoryLen):
+def mpcRendering(color, lineLength, jointStartIndex ,jointNum, robotID, trajectoryLen):
     index = 0
     trajectoryLen = 100000
     end_effector_xyz_start = []
@@ -179,13 +179,13 @@ if settings.enablePybulletTraining == True:
 ######################MPC-Net Rendering###########################
 #Ploct MPC
 initTorques, _= resetState(initState.copy())
-rendering(initTorques, [1,0,0])
-if settings.currentRendering == "enableRendering":
+pybulletRendering(initTorques, [1,0,0])
+if settings.currentRendering == "enablePybulletRendering":
    #Plot MPC-NET
    initTorques, _ = resetState(initState.copy())
-   rendering(initTorques, [0,0,1])
-elif settings.currentRendering == "enablePureRendering":
-   pureRendering([0,0,1], lineLength, jointStartIndex, jointNum, robot, trajectoryLen)
+   pybulletRendering(initTorques, [0,0,1])
+elif settings.currentRendering == "enableMpcRendering":
+   mpcRendering([0,0,1], lineLength, jointStartIndex, jointNum, robot, trajectoryLen)
 elif settings.currentRendering == "enableResetStateRendering":
    resetStateRendering([0,0,1], lineLength, jointStartIndex ,jointNum, robot, trajectoryLen)
 

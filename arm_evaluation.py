@@ -2,14 +2,11 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 import os
-import timeit
 import jmpc
 import time
 import sys
 import settings
 import shutil
-#from PolicyNet import ExpertMixturePolicy as PolicyNet
-#from PolicyNet_2Layer import ExpertMixturePolicy as PolicyNet_2Layer
 
 if settings.enablePybulletTraining == True:
    print("enablePybulletTraining = True, close evaluation app")
@@ -25,88 +22,28 @@ mpc.resetTrajectory()
 getTrajectoryResponse = mpc.getTrajectory()
 mpcTrajectoryTimes = getTrajectoryResponse.get("result").get("times")
 trajectoryLen = len(mpcTrajectoryTimes)
-trajectoryLastTime = mpcTrajectoryTimes[trajectoryLen-1] # length of trajectories to generate with MPC
 
 mpcTrajectoryStates = getTrajectoryResponse.get("result").get("trajectory")
-
-'''
-def mseVerification(policy):
-    getTrajectoryResponse = mpc.getTrajectory()
-    trajectoryLen = len(getTrajectoryResponse.get("result").get("times"))
-
-    # prepare saving of MPC solution trajectory (always add first point of a slq run)
-    trajectoryMaxTime = getTrajectoryResponse.get("result").get("times")[trajectoryLen-1] # length of trajectories to generate with MPC
-    dt = round(getTrajectoryResponse.get("result").get("times")[1] - getTrajectoryResponse.get("result").get("times")[0], 2) # 0.03s control duration
-    #trajectoryTime = np.linspace(0.0, trajectoryMaxTime, trajectoryLen)
-    trajectoryTime = np.arange(0.0, trajectoryMaxTime, dt)
-
-    initState = getTrajectoryResponse.get("result").get("trajectory")[0]
-    initState.extend(np.zeros(int(STATE_DIM/2)))
-
-    mpc.resetTrajectory()
-    x0 = initState
-    #x0[0] = np.random.uniform(-0.5, 0.5) # base x
-    #x0[1] = np.random.uniform(-0.5, 0.5) # base y
-    MSELoss = 0.0
-    for mpc_time in trajectoryTime: # mpc dummy loop
-
-        ttx_net = torch.tensor(np.concatenate((mpc_time, x0), axis=None), dtype=torch.float, device=torch.device("cpu"), requires_grad=False)
-        p, u_pred = policy(ttx_net)
-        
-        if len(p) > 1:
-            u_net = torch.matmul(p, u_pred)
-        else:
-            u_net = u_pred[0]
-
-        u_np = u_net.detach().numpy().astype('float64')
-
-        #print("start policyReqResp, ", np.transpose(tx[1:])[0].tolist(), " ", tx[0][0])
-        computePolicyResponse = mpc.computePolicy(x0, mpc_time)
-        if computePolicyResponse.get("result") == False :
-           print("Compute Policy Error!")
-           sys.exit(0)
-        
-        jsonControl = mpc.getControl(dt, x0, mpc_time)
-        MSELoss += np.square(np.subtract(u_np.tolist(), jsonControl.get("result"))).sum() 
-        #print("index ", index,"time ",mpc_time, " ,control net ", u_np.tolist(), "control mpc ", jsonControl.get("result"))
-        #nextStateList = mpc.getNextState(jsonControl.get("result"), dt, x0) #for mpc get next state
-        nextStateList = mpc.getNextState(u_np.tolist(), dt, x0) #for mpc-net get next state
-        
-        x0 = nextStateList.get("result")
-
-    return MSELoss
-'''
 
 initState = mpcTrajectoryStates[0].copy()
 initState.extend(np.zeros(int(STATE_DIM/2)))
 dt = 7./240.
 
 setInitStateResponse = pybulletClient.setInitState(1./240., initState, trajectoryLen, learning_iterations)
-print("setInitStateResponse ", setInitStateResponse)
 if setInitStateResponse == False:
    print("set Initial State Response Error!")
    sys.exit(0)
-
-def plot(save_path, policy):
-    policy = torch.load(save_path)
-    pybullet_mpcnet_position_history = np.zeros((trajectoryLen, STATE_DIM + 1))
-    pybullet_mpcnet_velocity_history = np.zeros((trajectoryLen, STATE_DIM + 1))
-    mpc_control_history = np.zeros((trajectoryLen, int(STATE_DIM/2)+1))
-    mpcnet_control_history = np.zeros((trajectoryLen, int(STATE_DIM/2)+1))
-    tx_history = np.zeros((trajectoryLen, STATE_DIM + 1))
-    trajectory_history = np.zeros((trajectoryLen, STATE_DIM + 1))
-
-    
-    ############## MPC Rollout #####################
+def mpcRollout(initState, mpc_trajectory_history, mpc_control_history, policy):
+     ############## MPC Rollout #####################
     # Set pubullet robot arm initial position, control period and total control times
     MSE = 0
     currentStateList = initState.copy()
-    trajectory_history[0, 1:] = np.array(mpcTrajectoryStates[0] + [0]*int(STATE_DIM/2))
+    mpc_trajectory_history[0, 1:] = np.array(mpcTrajectoryStates[0] + [0]*int(STATE_DIM/2))
     
     for timeIndex in range(trajectoryLen-1):
         currentTime = dt * timeIndex
-        trajectory_history[timeIndex, 0] = currentTime
-        trajectory_history[timeIndex, 1:] = currentStateList
+        mpc_trajectory_history[timeIndex, 0] = currentTime
+        mpc_trajectory_history[timeIndex, 1:] = currentStateList
         computePolicyResponse = mpc.computePolicy(currentStateList, currentTime)
         if computePolicyResponse == False :
            print("Compute Policy Error!")
@@ -116,13 +53,10 @@ def plot(save_path, policy):
         mpc_control_history[timeIndex, 0] = currentTime
         mpc_control_history[timeIndex, 1:] = jsonControl
 
-        #nextStateList = mpc.getNextState(jsonControl, dt, currentStateList) #for mpc-net get next state
         nextStateList = pybulletClient.getNextState(jsonControl, dt, currentStateList) #for pyBullet get next state
         currentStateList = nextStateList
-    #print("MPC Final State Diff ", np.subtract(currentStateList[:int(STATE_DIM/2)], mpcTrajectoryStates[-1]))
-    
-    time.sleep(1)   
-    ############## MPC-Net Rollout #####################
+
+def mpcNetRollout(initState, tx_history, mpcnet_control_history, pybullet_mpcnet_position_history, pybullet_mpcnet_velocity_history, policy):
     MSE = 0.0
     currentStateList = initState.copy()
     mpc.resetTrajectory()
@@ -179,12 +113,28 @@ def plot(save_path, policy):
            pybullet_mpcnet_velocity_history[timeIndex, 1:int(STATE_DIM/2)+1] = nextStateList[int(STATE_DIM/2):]
 
         currentStateList = nextStateList.copy()
-
     print("MPC-Net Final State Diff ", np.subtract(currentStateList[:int(STATE_DIM/2)], mpcTrajectoryStates[-1]), 'MSE Loss ', MSE)
+
+def plot(save_path):
+    policy = torch.load(save_path)
+    pybullet_mpcnet_position_history = np.zeros((trajectoryLen, STATE_DIM + 1))
+    pybullet_mpcnet_velocity_history = np.zeros((trajectoryLen, STATE_DIM + 1))
+    mpc_control_history = np.zeros((trajectoryLen, int(STATE_DIM/2)+1))
+    mpcnet_control_history = np.zeros((trajectoryLen, int(STATE_DIM/2)+1))
+    tx_history = np.zeros((trajectoryLen, STATE_DIM + 1))
+    mpc_trajectory_history = np.zeros((trajectoryLen, STATE_DIM + 1))
+
+    
+    ############## MPC Rollout #####################
+    mpcRollout(initState, mpc_trajectory_history, mpc_control_history, policy)
+    #print("MPC Final State Diff ", np.subtract(currentStateList[:int(STATE_DIM/2)], mpcTrajectoryStates[-1]))
+    time.sleep(1)   
+    ############## MPC-Net Rollout #####################
+    mpcNetRollout(initState, tx_history, mpcnet_control_history, pybullet_mpcnet_position_history, pybullet_mpcnet_velocity_history, policy)
     
     f, axarr = plt.subplots(4,2)
     
-    lineObjects = axarr[0][0].plot(trajectory_history[:trajectoryLen-1, 0], trajectory_history[:trajectoryLen-1, 1:int(STATE_DIM/2)+1])   #plot velocity
+    lineObjects = axarr[0][0].plot(mpc_trajectory_history[:trajectoryLen-1, 0], mpc_trajectory_history[:trajectoryLen-1, 1:int(STATE_DIM/2)+1])   #plot velocity
     axarr[0][0].legend(iter(lineObjects), ('q1', 'q2','q3','q4','q5','q6'))
     axarr[0][0].set_ylim(-2, 2)
     axarr[0][0].grid(True)
@@ -196,7 +146,7 @@ def plot(save_path, policy):
     axarr[0][1].set_title("MPC-Net State")
 
 
-    lineObjects = axarr[1][0].plot(trajectory_history[:trajectoryLen-1, 0], trajectory_history[:trajectoryLen-1, int(STATE_DIM/2)+1:])   #plot velocity
+    lineObjects = axarr[1][0].plot(mpc_trajectory_history[:trajectoryLen-1, 0], mpc_trajectory_history[:trajectoryLen-1, int(STATE_DIM/2)+1:])   #plot velocity
     axarr[1][0].legend(iter(lineObjects), ('q7', 'q8','q9','q10','q11','q12'))
     axarr[1][0].set_ylim(-2, 2)
     axarr[1][0].grid(True)
@@ -205,7 +155,7 @@ def plot(save_path, policy):
     axarr[1][1].set_ylim(-2, 2)
     axarr[1][1].grid(True)
 
-    lineObjects = axarr[2][0].plot(trajectory_history[:trajectoryLen-1, 0], trajectory_history[:trajectoryLen-1, int(STATE_DIM/2)+1:-1])   #plot velocity
+    lineObjects = axarr[2][0].plot(mpc_trajectory_history[:trajectoryLen-1, 0], mpc_trajectory_history[:trajectoryLen-1, int(STATE_DIM/2)+1:-1])   #plot velocity
     axarr[2][0].legend(iter(lineObjects), ('q7', 'q8','q9','q10','q11','q12'))
     axarr[2][0].set_ylim(-2, 2)
     axarr[2][0].grid(True)
@@ -224,16 +174,14 @@ def plot(save_path, policy):
     axarr[3][1].grid(True)
 
 
-if settings.currentRendering == "enablePureRendering":
-   shutil.copy("PolicyNet_2Layer.py","PolicyNet.py")
-   #the only two layer policy, we train it from mpc dynamic environment. Hard code path now.
-   policy = torch.load("armPolicy/pyBullet/1014/mpcPolicy_2020-10-28_025339.pt")
-   plot(save_path="armPolicy/pyBullet/1014/mpcPolicy_2020-10-28_025339.pt", policy=policy)
-else:
+if settings.currentRendering == "enableRendering":
    shutil.copy("PolicyNet_3Layer.py","PolicyNet.py")
    #Formally we use three layer policy now, we train it from pybullet dynamic environment. Hard code path now.
-   policy = torch.load(settings.loadPolicyPath)
-   plot(save_path=settings.loadPolicyPath, policy=policy)
+   plot(save_path=settings.loadPolicyPath)
+else:
+   shutil.copy("PolicyNet_2Layer.py","PolicyNet.py")
+   #the  two layer policy, we train it from mpc dynamic environment. Hard code path now.
+   plot(save_path="armPolicy/pyBullet/1014/mpcPolicy_2020-10-28_025339.pt")
 #plot(save_path="armPolicy/pyBullet/1115/161926/233420/004124/mpcPolicy_2020-11-16_015155.pt", t_end=trajectoryLastTime)
 #plot(save_path="armPolicy/pyBullet/1115/161926/233420/004124/mpcPolicy_2020-11-16_011155.pt", t_end=trajectoryLastTime)
 #plot(save_path="armPolicy/pyBullet/1115/161926/233420/004124/mpcPolicy_2020-11-16_010655.pt", t_end=trajectoryLastTime)

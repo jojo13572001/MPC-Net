@@ -1,5 +1,5 @@
-renderMethods = ["enablePureRendering", "enableRendering", "enableResetStateRendering"]
-currentRendering = renderMethods[1]
+renderMethods = ["enableMpcRendering", "enablePybulletRendering", "enableResetStateRendering"]
+currentRendering = renderMethods[2]
 enablePybulletTraining = False
 enableSampling = True
 loadMemory = not enableSampling
