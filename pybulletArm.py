@@ -111,7 +111,6 @@ def pureRendering(color, lineLength, jointStartIndex ,jointNum, robotID, traject
     lineLength = 2
     while index+1 < trajectoryLen:
         state, index= pybulletServer.recvState()
-        print("~`````````````",state, index)
         for i in range(jointNum):
            pybullet.resetJointState(robotID, i+jointStartIndex, state[i])
 
@@ -128,9 +127,12 @@ def resetStateRendering(color, lineLength, jointStartIndex ,jointNum, robot, tra
     end_effector_xyz_start = []
     end_effector_xyz_end = []
     totoalJointNum = pybullet.getNumJoints(robot)
-    while index+1 < (trajectoryLen-1):
+    while index+1 < trajectoryLen:
         state, index= pybulletServer.recvState()
-        joint_torques = pybulletServer.recvControl()
+        joint_torques, stop = pybulletServer.recvControl()
+        if stop == True:
+           pybulletServer.responseCurrentState([])
+           break
         
         resetState(state)
         pybullet.setJointMotorControlArray(robot, range(totoalJointNum), pybullet.TORQUE_CONTROL, forces=[0,0]+
