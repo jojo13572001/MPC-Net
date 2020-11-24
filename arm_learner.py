@@ -27,54 +27,7 @@ dt_control = 7./240.
 dtype = torch.float
 device = torch.device("cpu")
 #device = torch.device("cuda:0") # Uncomment this to run on GPU
-"""
-def mseVerification(policy):
-    mpc.resetTrajectory()
-    getTrajectoryResponse = mpc.getTrajectory()
-    trajectoryLen = len(getTrajectoryResponse.get("result").get("times"))
 
-    # prepare saving of MPC solution trajectory (always add first point of a slq run)
-    trajectoryLastTime = getTrajectoryResponse.get("result").get("times")[trajectoryLen-1] # length of trajectories to generate with MPC
-    dt = round(getTrajectoryResponse.get("result").get("times")[1] - getTrajectoryResponse.get("result").get("times")[0], 2) # 0.03s control duration
-    #trajectoryTime = np.linspace(0.0, trajectoryLastTime, trajectoryLen)
-    trajectoryTime = np.arange(0.0, trajectoryLastTime, dt)
-    last_policy_save_time = time.time()
-
-    initState = getTrajectoryResponse.get("result").get("trajectory")[0]
-    initState.extend(np.zeros(int(STATE_DIM/2)))
-
-    x0 = initState
-    #x0[0] = np.random.uniform(-0.5, 0.5) # base x
-    #x0[1] = np.random.uniform(-0.5, 0.5) # base y
-    MSELoss = 0.0
-    for timeIndex in trajectoryTime: # mpc dummy loop
-
-        ttx_net = torch.tensor(np.concatenate((timeIndex, x0), axis=None), dtype=dtype, device=device, requires_grad=False)
-        p, u_pred = policy(ttx_net)
-        
-        if len(p) > 1:
-            u_net = torch.matmul(p, u_pred)
-        else:
-            u_net = u_pred[0]
-
-        u_np = u_net.detach().numpy().astype('float64')
-
-        #print("start policyReqResp, ", np.transpose(tx[1:])[0].tolist(), " ", tx[0][0])
-        computePolicyResponse = mpc.computePolicy(x0, timeIndex)
-        if computePolicyResponse == False :
-           print("Compute Policy Error!")
-           sys.exit(0)
-        
-        jsonControl = mpc.getControl(dt, x0, timeIndex)
-        MSELoss += np.square(np.subtract(u_np.tolist(), jsonControl)).sum() 
-        #print("index ", index,"time ",timeIndex, " ,control net ", u_np.tolist(), "control mpc ", jsonControl.get("result"))
-        jsonNextState = mpc.getNextState(jsonControl, dt, x0) #for mpc get next state
-        #jsonNextState = mpc.getNextState(u_np.tolist(), dt, x0) #for mpc-net get next state
-        
-        x0 = jsonNextState
-
-    return MSELoss
-"""
 def mseLoss_function(u_pred, u0):
     mseloss = torch.nn.MSELoss(reduction='sum')
     return mseloss(u_pred, u0)
