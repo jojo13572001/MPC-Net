@@ -174,7 +174,7 @@ def plot(save_path):
     axarr[3][1].grid(True)
 
 
-if settings.currentRendering == "enableRendering":
+if settings.currentRendering == "enablePybulletRendering":
    shutil.copy("PolicyNet_3Layer.py","PolicyNet.py")
    #Formally we use three layer policy now, we train it from pybullet dynamic environment. Hard code path now.
    plot(save_path=settings.loadPolicyPath)
