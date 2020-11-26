@@ -3,6 +3,7 @@ import torch
 from tensorboardX import SummaryWriter
 import datetime
 import time
+import sys
 import pickle
 from replay_memory import ReplayMemory
 import jmpc
@@ -10,6 +11,10 @@ import settings
 import shutil
 
 from PolicyNet import ExpertMixturePolicy as PolicyNet
+
+if settings.enablePybulletTraining == False:
+   print("enablePybulletTraining = False, close training app")
+   sys.exit(0)
 
 #workaround to support two layer and three layer policy mpc-net rendering
 shutil.copy("PolicyNet_3Layer.py","PolicyNet.py")

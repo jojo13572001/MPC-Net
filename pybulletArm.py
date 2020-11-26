@@ -174,7 +174,7 @@ if settings.enablePybulletTraining == True:
    while (learningIterationIndex+1 < learningIterations):
      initTorques, firstState = resetState(initState.copy())
      learningIterationIndex = pybulletServer.recvInitTrainingState(firstState)
-     rendering(initTorques, [1,0,0])
+     pybulletRendering(initTorques, [1,0,0])
 
 ######################MPC-Net Rendering###########################
 #Ploct MPC
