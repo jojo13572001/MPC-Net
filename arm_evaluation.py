@@ -90,11 +90,11 @@ def mpcNetRollout(initState, tx_history, mpcnet_control_history, pybullet_mpcnet
         #print("MPC-Net index ", timeIndex,", Time ",currentTime," ,MSE loss",MSE, "\n")
         pybullet_mpcnet_position_history[timeIndex, 0] = currentTime
         pybullet_mpcnet_velocity_history[timeIndex, 0] = currentTime
-        if settings.currentRendering == "enableRendering":
+        if settings.currentRendering == "enablePybulletRendering":
            nextStateList = pybulletClient.getNextState(u_np.tolist(), dt, currentStateList.copy()) #for pyBullet get next state
            pybullet_mpcnet_position_history[timeIndex, int(STATE_DIM/2)+1:] = nextStateList[:int(STATE_DIM/2)]
            pybullet_mpcnet_velocity_history[timeIndex, int(STATE_DIM/2)+1:] = nextStateList[int(STATE_DIM/2):]
-        elif settings.currentRendering == "enablePureRendering":
+        elif settings.currentRendering == "enableMpcRendering":
            nextStateList = mpc.getNextState(u_np.tolist(), dt, currentStateList.copy()) #for mpc-net get next state
            pybullet_mpcnet_position_history[timeIndex, 1:int(STATE_DIM/2)+1] = nextStateList[:int(STATE_DIM/2)]
            pybullet_mpcnet_velocity_history[timeIndex, 1:int(STATE_DIM/2)+1] = nextStateList[int(STATE_DIM/2):]
